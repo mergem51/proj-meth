@@ -51,6 +51,7 @@ sigma <- 50 # une variance trop petite ne permet pas d'avoir un écart de taille
 psu_sizes <- pmax(pmin(rnorm(M, mean = 1111, sd = sigma), 1208), 1034)
 hist(psu_sizes)
 sum(psu_sizes)
+test
 #########################################
 ### Question : Comment contrôler la taille des PSU en respectant la simulation par grille 
 
