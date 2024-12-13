@@ -1,0 +1,476 @@
+---
+title: "Projet méthodo"
+output: html_document
+date: "2024-12-01"
+---
+
+```{r}
+rm(list = ls())
+
+library(dplyr)
+library(ggplot2)
+library(sampling)
+
+```
+
+
+7.1 simulation 
+
+```{r}
+
+# Population
+N <- 250000  # Taille de la population
+prevalence <- 0.005  # Prévalence de la maladie
+
+# Définir la taille de la grille
+grid_size <- 15
+M <- grid_size^2  # Nombre total de PSU
+
+# Générer les coordonnées x et y
+x_coords <- runif(N, min = 0, max = 1000) 
+y_coords <- runif(N, min = 0, max = 1000)
+coord_ind <- data.frame(cbind(x_coords,y_coords))
+
+# Assigner les unités aux PSU basés sur une grille
+x_grid <- cut(x_coords, breaks = seq(0, 1000, length.out = grid_size + 1), labels = FALSE)
+y_grid <- cut(y_coords, breaks = seq(0, 1000, length.out = grid_size + 1), labels = FALSE)
+PSU <- (x_grid - 1) * grid_size + y_grid
+coord_ind$PSU <- PSU # on ajoute la correspondance des PSU
+taille_psu <- data.frame(table(PSU))
+taille_psu$PSU <- as.numeric(taille_psu$PSU)
+coord_ind <- full_join(coord_ind, taille_psu, by = "PSU") # on ajoute la taille de chaque PSU
+colnames(coord_ind)[4] <- "taille"
+
+
+
+
+#########################################
+# Générer les tailles des PSU selon une loi normale tronquée
+set.seed(123)  # Pour reproductibilité
+sigma <- 50 # une variance trop petite ne permet pas d'avoir un écart de taille suffisament important
+psu_sizes <- pmax(pmin(rnorm(M, mean = 1111, sd = sigma), 1208), 1034)
+hist(psu_sizes)
+sum(psu_sizes)
+#########################################
+### Question : Comment contrôler la taille des PSU en respectant la simulation par grille 
+
+
+
+# Générer une population malade selon la prévalence
+coord_ind$malade <- rbinom(N, size = 1, prob = prevalence)
+### Question : La génération des cas de malade est-elle vraiment aléatoire ? 
+  
+
+
+#########################################
+#### Clustering #########################
+#########################################
+
+
+# Fonction pour calculer le coefficient de variation intra-domaine k
+calculate_intra_domain_variation <- function(psu_positive_rates, psu_sizes) {
+  # Moyenne pondérée des taux de positivité
+  mean_rate <- sum(psu_positive_rates * psu_sizes) / sum(psu_sizes)
+  
+  # Variance intra-domaine
+  variance <- sum(psu_sizes * (psu_positive_rates - mean_rate)^2) / sum(psu_sizes)
+  
+  # Coefficient de variation k
+  k <- sqrt(variance) / mean_rate
+  return(k)
+}
+
+# Créer un vecteur de comptage des malades par PSU
+cases_per_psu <- coord_ind %>% 
+  group_by(PSU) %>% 
+  filter(malade == 1) %>%
+  summarise(nbr_cas = n()) # certaines PSU ne possèdent aucun cas
+
+cases_per_psu <- full_join(cases_per_psu, taille_psu, by = "PSU")
+
+# Calculer le taux de malades par PSU
+rates_per_psu <- cases_per_psu$nbr_cas / cases_per_psu$Freq
+
+# Information des PSU
+psu_info <- data.frame(
+  PSU = 1:M, 
+  Size = taille_psu$Freq, 
+  Cases = cases_per_psu$nbr_cas,
+  Rate = rates_per_psu
+)
+
+
+
+# Fonction de création des scénarios
+create_scenarios <- function(cluster_levels, M, psu_sizes, base_prevalence, num_clusters = 3) {
+  scenarios <- list()  # Liste pour stocker les scénarios
+  
+  # Tirer au hasard les indices des clusters (fixe à 3)
+  cluster_indices <- sample(1:M, num_clusters, replace = FALSE)
+  
+  for (clustering in cluster_levels) {
+    # Initialiser les taux de cas positifs avec la prévalence de base
+    psu_positive_rates <- rep(base_prevalence, M)
+    
+    # Augmenter les taux de cas positifs dans les clusters sélectionnés
+    psu_positive_rates[cluster_indices] <- psu_positive_rates[cluster_indices] + 0.05 * clustering
+    
+    # Normaliser pour conserver la prévalence moyenne globale
+    adjustment_factor <- base_prevalence / mean(psu_positive_rates)
+    psu_positive_rates <- psu_positive_rates * adjustment_factor
+    
+    # Calculer le coefficient de variation intra-domaine k
+    k <- calculate_intra_domain_variation(psu_positive_rates, psu_sizes)
+    
+    # Stocker le scénario
+    scenarios[[paste0(clustering * 100, "%")]] <- list(rates = psu_positive_rates, k = k)
+  }
+  
+  return(scenarios)  # Retourner les scénarios générés
+}
+
+
+# Définir les niveaux de regroupement des cas positifs (0%, 30%, 40%, 50%, 60%, 70%)
+cluster_levels <- c(0, 0.3, 0.4, 0.5, 0.6, 0.7)
+
+
+# Création des scénarios
+scenarios <- create_scenarios(
+  cluster_levels = cluster_levels,
+  M = 225,
+  psu_sizes = psu_info$Size,  
+  base_prevalence = 0.005
+)
+
+# Créer une matrice pour les coordonnées des PSU dans la grille
+psu_coords <- expand.grid(x = 1:grid_size, y = 1:grid_size)
+
+# Préparer les données pour chaque scénario
+all_sick_coords <- data.frame(x = numeric(0), y = numeric(0), scenario = character(0))
+
+# Pour chaque scénario, calculer les cas malades
+for (scen_name in names(scenarios)) {
+  psu_positive_rates <- scenarios[[scen_name]]$rates
+  sick_coords <- data.frame(x = numeric(0), y = numeric(0))
+  
+  for (i in 1:M) {
+    num_sick <- rbinom(1, size = psu_info[i, "Size"], prob = psu_positive_rates[i])
+    if (num_sick > 0) {
+      # Coordonnées de la PSU dans l'espace 1000x1000
+      x_start <- (psu_coords$x[i] - 1) * (1000 / grid_size)
+      y_start <- (psu_coords$y[i] - 1) * (1000 / grid_size)
+      x_end <- psu_coords$x[i] * (1000 / grid_size)
+      y_end <- psu_coords$y[i] * (1000 / grid_size)
+      
+      # Générer les coordonnées des malades aléatoirement dans la PSU
+      x_pos <- runif(num_sick, min = x_start, max = x_end)
+      y_pos <- runif(num_sick, min = y_start, max = y_end)
+      
+      # Ajouter les coordonnées des malades
+      sick_coords <- rbind(sick_coords, data.frame(x = x_pos, y = y_pos))
+    }
+  }
+  
+  # Ajouter le scénario au dataframe
+  sick_coords$scenario <- scen_name  
+  all_sick_coords <- rbind(all_sick_coords, sick_coords)
+}
+
+# Visualiser les cas malades pour chaque scénario
+library(ggplot2)
+ggplot(all_sick_coords, aes(x = x, y = y)) +
+  geom_point(color = "black", size = 0.5) +
+  facet_wrap(~scenario, ncol = 3) +  # Crée une grille de graphiques
+  labs(title = "Cas malades par scénario de regroupement", x = "Coordonnée X", y = "Coordonnée Y") +
+  theme_minimal()
+
+
+
+```
+
+
+
+
+
+```{r}
+
+# Identifier les individus malades
+malades_indices <- which(y == 1)
+
+# Extraire les coordonnées et PSU des individus malades
+malades_data <- data.frame(
+  Index = malades_indices,
+  X = x_coords[malades_indices],
+  Y = y_coords[malades_indices],
+  PSU = PSU[malades_indices]
+)
+
+
+# Define inclusion probabilities using PoSA method
+# Adjust probabilities to account for clustering and total size
+inclusion_probabilities <- (27 * Nh) / sum(Nh)
+
+# Tirage des PSU
+
+PSU_sample <- pps.sampling(Nh, 27, id = 1:225, method = 'sampford', return.PI = FALSE) # à tester sur le cluster
+
+
+# Initialize variables
+selected <- rep(0, N)  # Indicator vector for selected units
+selection_prob <- inclusion_probabilities  # Initialize selection probabilities
+
+
+
+###### 3 ) Comment sélectionner ou non la première PSU suite a inclusion_probabilities initial ? 
+
+
+
+
+
+### PoSA sampling process : processus de sélection up-and-down
+for (i in 1:(N - 1)) {
+  # Step 1: Decide whether to select the current unit i (à vérifier)
+  selected[i] <- rbinom(1, size = 1, prob = selection_prob[i])
+
+  # Step 2: Update the probability for the next unit based on the adaptive rule
+  if (selected[i] == 1 && Y[i] == 1) {
+    # If unit i is selected and satisfies condition D, set the next unit's probability to 1
+    selection_prob[i + 1] <- 1
+  } else {
+    # Otherwise, keep the next unit's probability unchanged
+    selection_prob[i + 1] <- initial_prob[i + 1]
+  }
+}
+
+
+
+
+
+### CPoSa sampling process 
+cposa_sampling <- function(N, n_min, positive_cases, initial_probs) {
+  # N : Nombre total d'unités dans la population
+  # n_min : Taille minimale de l'échantillon
+  # positive_cases : Indicateur des cas positifs (vecteur binaire de longueur N)
+  # initial_probs : Probabilités initiales d'inclusion, somme égale à n_min
+
+  if (sum(initial_probs) != n_min) {
+    stop("La somme des probabilités initiales doit être égale à n_min.")
+  }
+
+  # Initialisation
+  selection_probs <- initial_probs
+  sample_selected <- rep(0, N) # Vecteur pour suivre les unités sélectionnées
+
+  for (i in 1:N) {
+    # Sélectionner l'unité avec la probabilité actuelle
+    selected <- rbinom(1, 1, selection_probs[i])
+    sample_selected[i] <- selected
+
+    # Mettre à jour les probabilités si l'unité n'est pas incluse
+    if (i < N) {
+      if (selected == 1 && positive_cases[i] == 1) {
+        # Inclusion certaine pour la prochaine unité si positif détecté
+        selection_probs[i + 1] <- 1
+      } else {
+        # Mise à jour des probabilités pour les unités suivantes
+        selection_probs[(i + 1):N] <- pmax(0, pmin(
+          selection_probs[(i + 1):N] - selected - selection_probs[i] / (N - i),
+          1
+        ))
+      }
+    }
+
+    # S'assurer que la taille minimale de l'échantillon est respectée
+    if (sum(sample_selected) < n_min && i >= n_min) {
+      selection_probs[(i + 1):N] <- pmax(
+        selection_probs[(i + 1):N],
+        (n_min - sum(sample_selected)) / (N - i)
+      )
+    }
+  }
+
+  return(which(sample_selected == 1)) # Indices des unités sélectionnées
+}
+
+# Exemple d'utilisation
+           # Taille minimale de l'échantillon
+positive_cases <- sample(c(0, 1), N, replace = TRUE, prob = c(0.9, 0.1)) # Cas positifs
+initial_probs <- rep(n_min / N, N) # Probabilités initiales uniformes
+
+# Exécuter le CPoSA
+sample <- cposa_sampling(N, 27, positive_cases, initial_probs)
+
+# Résultats
+cat("Unités sélectionnées :", sample, "\n")
+cat("Taille de l'échantillon final :", length(sample), "\n")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# Generate 3 clusters with increasing clustering factors
+cluster_centers <- data.frame(
+  x = runif(3, min = 0, max = 1000),
+  y = runif(3, min = 0, max = 1000)
+)
+cluster_labels <- apply(cbind(x_coords, y_coords), 1, function(coord) {
+  which.min(sqrt((coord[1] - cluster_centers$x)^2 + (coord[2] - cluster_centers$y)^2))
+})
+
+# Define clustering factors and simulate scenarios
+clustering_factors <- c(0.3, 0.4, 0.47, 0.6, 0.7)  # Increasing clustering
+scenarios <- list()
+
+for (k in seq_along(clustering_factors)) {
+  y_clustered <- y  # Copy baseline data
+  for (i in 1:3) {  # Iterate over 3 clusters
+    cluster_members <- which(cluster_labels == i)
+    y_clustered[cluster_members] <- rbinom(
+      length(cluster_members), size = 1,
+      prob = prevalence * (1 + clustering_factors[k])
+    )
+  }
+  scenarios[[k]] <- y_clustered
+}
+
+# Calculate coefficient of intra-area variation (k)
+k_values <- numeric(length(scenarios))
+
+for (k in seq_along(scenarios)) {
+  scenario <- scenarios[[k]]
+  cluster_means <- tapply(scenario, cluster_labels, mean)
+  overall_mean <- mean(scenario)
+  between_area_variance <- mean((cluster_means - overall_mean)^2)
+  k_values[k] <- between_area_variance / overall_mean
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+### Monte Carlo simulation
+num_runs <- 5000
+mc_results <- matrix(0, nrow = num_runs, ncol = length(scenarios))
+
+for (run in 1:num_runs) {
+  for (k in seq_along(scenarios)) {
+    scenario <- scenarios[[k]]
+    mc_sample <- sample(1:N, size = 1000, prob = inclusion_probabilities)
+    mc_results[run, k] <- mean(scenario[mc_sample])
+  }
+}
+
+
+
+
+
+
+
+
+
+
+# Visualization of clustering scenarios
+library(ggplot2)
+scenario_data <- data.frame(
+  x = x_coords, y = y_coords, cluster = factor(cluster_labels), outcome = y
+)
+
+p <- ggplot(scenario_data, aes(x = x, y = y, color = cluster)) +
+  geom_point(alpha = 0.6) +
+  labs(title = "Spatial Clustering of TB Cases", x = "X Coordinate", y = "Y Coordinate") +
+  theme_minimal()
+
+print(p)
+
+# Results
+cat("Coefficient of intra-area variation (k) for each scenario:", k_values, "\n")
+
+
+
+```
+
+
+
+
+
+
+
+
+
+```{r}
+
+# Paramètres
+N <- 250000  # Taille de la population
+prevalence <- 0.005  # Prévalence de la maladie
+grid_size <- 15  # Taille de la grille PSU (15x15)
+
+# 1. Générer les coordonnées x et y des individus (uniformément réparties dans un carré de taille 1000x1000)
+set.seed(123)  # Pour reproductibilité
+x_coords <- runif(N, min = 0, max = 1000)  # Coordonnées x
+y_coords <- runif(N, min = 0, max = 1000)  # Coordonnées y
+
+# 2. Assigner chaque individu à une PSU dans la grille 15x15
+# Les coordonnées doivent rester dans les limites des PSU. 
+# Chaque PSU couvre un carré de taille (1000 / 15) = 66.66
+x_grid <- cut(x_coords, breaks = seq(0, 1000, length.out = grid_size + 1), labels = FALSE, include.lowest = TRUE)
+y_grid <- cut(y_coords, breaks = seq(0, 1000, length.out = grid_size + 1), labels = FALSE, include.lowest = TRUE)
+PSU <- (x_grid - 1) * grid_size + y_grid  # PSU (Unités primaires)
+psu_sizes <- data.frame(table(PSU)) # taille diffèrent légèrement
+
+# 3. Générer l'état de la maladie pour chaque individu (0 = non malade, 1 = malade)
+disease_status <- rbinom(N, size = 1, prob = prevalence)
+range(psu_sizes$Freq)
+
+# 4. Filtrer les individus malades
+sick_coords <- data.frame(
+  x = x_coords[disease_status == 1],  # Coordonnées X des malades
+  y = y_coords[disease_status == 1]   # Coordonnées Y des malades
+)
+
+# 5. Créer un graphique avec les individus malades, en utilisant ggplot2
+library(ggplot2)
+
+# Affichage de la grille PSU avec les malades représentés en noir
+ggplot() +
+  geom_point(data = sick_coords, aes(x = x, y = y), color = "black", size = 0.5) +  # Cas malades en noir
+  geom_tile(data = expand.grid(x = 1:grid_size, y = 1:grid_size), 
+            aes(x = x * 66.66 - 33.33, y = y * 66.66 - 33.33), 
+            fill = NA, color = "gray") +  # Dessiner la grille
+  labs(title = "Cas malades par PSU", x = "Coordonnée X", y = "Coordonnée Y") +
+  theme_minimal() +
+  theme(aspect.ratio = 1)  # Maintenir l'aspect ratio carré
+
+
+```
+
