@@ -1,0 +1,157 @@
+---
+title: "simulation_cluster"
+output: html_document
+date: "2025-01-11"
+---
+
+```{r}
+rm(list = ls())
+
+library(dplyr)
+library(ggplot2)
+library(sampling)
+library(MASS)
+library(clusterGeneration)
+library(mvtnorm)
+```
+
+
+
+7.1 simulation 
+
+```{r}
+
+# Population
+N <- 250000  # Taille de la population
+prevalence <- 0.005  # Prévalence de la maladie
+
+# Définir la taille de la grille
+grid_size <- 15
+M <- grid_size^2  # Nombre total de PSU
+
+# Générer les coordonnées x et y
+x_coords <- runif(N, min = 0, max = 1000) 
+y_coords <- runif(N, min = 0, max = 1000)
+coord_ind <- data.frame(cbind(x_coords,y_coords))
+
+```
+
+
+```{r}
+
+
+ddd
+$*
+
+
+set.seed(123)
+
+# Étape 1 : Génération de la population globale
+n_total <- 1000  # Nombre total d'individus
+
+# Générer des coordonnées aléatoires dans un espace 2D (1000 x 1000)
+population <- data.frame(
+  id = 1:n_total,
+  x = runif(n_total, min = 0, max = 1000),  # Coordonnées x
+  y = runif(n_total, min = 0, max = 1000)   # Coordonnées y
+)
+
+# Étape 2 : Définition des centres des clusters de malades
+n_centres <- 3  # Nombre de clusters
+centres_malades <- data.frame(
+  centre_id = 1:n_centres,
+  x = runif(n_centres, min = 200, max = 800),  # Centres x
+  y = runif(n_centres, min = 200, max = 800)   # Centres y
+)
+
+# Étape 3 : Génération des malades
+prop_malades <- 0.2  # Proportion totale de malades dans la population
+prop_clusters <- 0.7  # Proportion de malades dans les clusters
+n_malades <- round(n_total * prop_malades)  # Nombre total de malades
+n_cluster_malades <- round(n_malades * prop_clusters)  # Nombre de malades dans les clusters
+n_outside_malades <- n_malades - n_cluster_malades  # Nombre de malades hors clusters
+mean_radius <- 50  # Rayon moyen autour des centres
+
+# Générer les malades dans les clusters
+set.seed(456)
+malades_clusters <- do.call(rbind, lapply(1:n_centres, function(i) {
+  n_cluster <- round(n_cluster_malades / n_centres)  # Répartition des malades entre les clusters
+  data.frame(
+    id = NA,  # ID temporaire (non encore assigné)
+    x = rnorm(n_cluster, mean = centres_malades$x[i], sd = mean_radius),
+    y = rnorm(n_cluster, mean = centres_malades$y[i], sd = mean_radius),
+    malade = 1,  # Marquer ces individus comme malades
+    cluster = i  # Identifier le cluster
+  )
+}))
+
+# Assurer que les malades dans les clusters restent dans la grille
+malades_clusters$x <- pmax(0, pmin(1000, malades_clusters$x))
+malades_clusters$y <- pmax(0, pmin(1000, malades_clusters$y))
+
+# Générer les malades hors des clusters
+set.seed(789)
+malades_outside <- data.frame(
+  id = NA,  # ID temporaire (non encore assigné)
+  x = numeric(0),
+  y = numeric(0),
+  malade = 1
+)
+
+while (nrow(malades_outside) < n_outside_malades) {
+  # Générer des candidats hors clusters
+  candidates <- data.frame(
+    x = runif(n_outside_malades, min = 0, max = 1000),
+    y = runif(n_outside_malades, min = 0, max = 1000)
+  )
+  
+  # Calculer la distance aux centres des clusters
+  distances <- sapply(1:n_centres, function(i) {
+    sqrt((candidates$x - centres_malades$x[i])^2 + (candidates$y - centres_malades$y[i])^2)
+  })
+  
+  # Garder les points éloignés des clusters
+  outside <- rowSums(distances < mean_radius * 2) == 0  # Ajuster la zone d'exclusion
+  malades_outside <- rbind(malades_outside, candidates[outside, ])
+  malades_outside <- malades_outside[1:n_outside_malades, ]  # Limiter au nombre requis
+}
+
+# Ajouter les IDs à la population
+malades_clusters$id <- sample(population$id, nrow(malades_clusters))
+malades_outside$id <- sample(setdiff(population$id, malades_clusters$id), nrow(malades_outside))
+
+# Fusionner les malades
+malades <- rbind(
+  malades_clusters[, c("id", "x", "y", "malade")],
+  cbind(malades_outside, malade = 1)
+)
+
+# Ajouter les malades à la population globale
+population$malade <- 0
+population[population$id %in% malades$id, c("x", "y", "malade")] <- malades[, c("x", "y", "malade")]
+
+# Étape 4 : Visualisation
+library(ggplot2)
+
+# Séparer malades dans et hors clusters pour visualisation
+malades_clusters_plot <- malades_clusters
+malades_outside_plot <- subset(population, malade == 1 & !(id %in% malades_clusters$id))
+
+ggplot() +
+  geom_point(data = malades_outside_plot, aes(x = x, y = y), color = "blue", size = 1.5, alpha = 0.7) +
+  geom_point(data = malades_clusters_plot, aes(x = x, y = y), color = "red", size = 1.5, alpha = 0.7) +
+  geom_point(data = centres_malades, aes(x = x, y = y), color = "black", size = 3, shape = 8) +
+  labs(title = "Répartition des malades : clusters (rouge) et hors clusters (bleu)",
+       x = "X", y = "Y") +
+  coord_fixed(ratio = 1, xlim = c(0, 1000), ylim = c(0, 1000)) +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5, size = 16))
+
+```
+
+
+
+```{r}
+
+```
+
