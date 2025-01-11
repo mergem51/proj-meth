@@ -19,23 +19,6 @@ library(mvtnorm)
 
 7.1 simulation 
 
-```{r}
-
-# Population
-N <- 250000  # Taille de la population
-prevalence <- 0.005  # Prévalence de la maladie
-
-# Définir la taille de la grille
-grid_size <- 15
-M <- grid_size^2  # Nombre total de PSU
-
-# Générer les coordonnées x et y
-x_coords <- runif(N, min = 0, max = 1000) 
-y_coords <- runif(N, min = 0, max = 1000)
-coord_ind <- data.frame(cbind(x_coords,y_coords))
-
-```
-
 
 ```{r}
 
@@ -70,15 +53,22 @@ mean_radius <- 50  # Rayon moyen autour des centres
 # Générer les malades dans les clusters
 set.seed(456)
 malades_clusters <- do.call(rbind, lapply(1:n_centres, function(i) {
-  n_cluster <- round(n_cluster_malades / n_centres)  # Répartition des malades entre les clusters
+  n_cluster <- if (i == n_centres) {
+    n_cluster_malades - (round(n_cluster_malades / n_centres) * (n_centres - 1))
+  } else {
+    round(n_cluster_malades / n_centres)
+  }
   data.frame(
-    id = NA,  # ID temporaire (non encore assigné)
+    id = NA,
     x = rnorm(n_cluster, mean = centres_malades$x[i], sd = mean_radius),
     y = rnorm(n_cluster, mean = centres_malades$y[i], sd = mean_radius),
-    malade = 1,  # Marquer ces individus comme malades
-    cluster = i  # Identifier le cluster
+    malade = 1,
+    cluster = i
   )
 }))
+
+# pas de soucis
+
 
 # Assurer que les malades dans les clusters restent dans la grille
 malades_clusters$x <- pmax(0, pmin(1000, malades_clusters$x))
@@ -92,6 +82,8 @@ malades_outside <- data.frame(
   y = numeric(0),    # Coordonnée y vide
   malade = integer(0)  # Marqueur vide
 )
+
+malades_outside <- data.frame()  # Initialisation du tableau des malades hors clusters
 
 while (nrow(malades_outside) < n_outside_malades) {
   # Générer des candidats hors clusters
@@ -116,8 +108,11 @@ while (nrow(malades_outside) < n_outside_malades) {
       malade = 1
     )
   )
-  malades_outside <- malades_outside[1:n_outside_malades, ]  # Limiter au nombre requis
 }
+
+# Une fois hors de la boucle, limiter aux `n_outside_malades` requis
+malades_outside <- malades_outside[1:n_outside_malades, ]
+
 
 # Ajouter les IDs à la population
 malades_clusters$id <- sample(population$id, nrow(malades_clusters))
@@ -167,6 +162,9 @@ psu_y_limits <- seq(0, 1000, by = 1000/psu_size)
 population$psu_x <- cut(population$x, breaks = psu_x_limits, labels = FALSE, include.lowest = TRUE)
 population$psu_y <- cut(population$y, breaks = psu_y_limits, labels = FALSE, include.lowest = TRUE)
 
+population_na <- population %>%
+  filter(if_any(everything(), is.na)) 
+
 
 # Étape 5 : Créer un tableau récapitulatif du nombre d'individus et de malades par PSU
 psu_counts <- population %>%
@@ -179,8 +177,6 @@ psu_counts <- population %>%
 
 # On rajoute la colonne pour identifié les PSU
 psu_counts$PSU <- seq(1, 225, by = 1)
-
-psu_counts <- psu_counts[1:nrow(psu_counts) - 1, ] # on supprime les éléments qui n'appartient pas à des PSU
 
 
 ```
