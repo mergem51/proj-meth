@@ -39,15 +39,10 @@ coord_ind <- data.frame(cbind(x_coords,y_coords))
 
 ```{r}
 
-
-ddd
-$*
-
-
 set.seed(123)
 
 # Étape 1 : Génération de la population globale
-n_total <- 1000  # Nombre total d'individus
+n_total <- 250000  # Nombre total d'individus
 
 # Générer des coordonnées aléatoires dans un espace 2D (1000 x 1000)
 population <- data.frame(
@@ -65,8 +60,8 @@ centres_malades <- data.frame(
 )
 
 # Étape 3 : Génération des malades
-prop_malades <- 0.2  # Proportion totale de malades dans la population
-prop_clusters <- 0.7  # Proportion de malades dans les clusters
+prop_malades <- 0.005  # Proportion totale de malades dans la population
+prop_clusters <- 0.5  # Proportion de malades dans les clusters
 n_malades <- round(n_total * prop_malades)  # Nombre total de malades
 n_cluster_malades <- round(n_malades * prop_clusters)  # Nombre de malades dans les clusters
 n_outside_malades <- n_malades - n_cluster_malades  # Nombre de malades hors clusters
@@ -92,10 +87,10 @@ malades_clusters$y <- pmax(0, pmin(1000, malades_clusters$y))
 # Générer les malades hors des clusters
 set.seed(789)
 malades_outside <- data.frame(
-  id = NA,  # ID temporaire (non encore assigné)
-  x = numeric(0),
-  y = numeric(0),
-  malade = 1
+  id = integer(0),   # ID temporaire vide (type entier)
+  x = numeric(0),    # Coordonnée x vide
+  y = numeric(0),    # Coordonnée y vide
+  malade = integer(0)  # Marqueur vide
 )
 
 while (nrow(malades_outside) < n_outside_malades) {
@@ -112,7 +107,15 @@ while (nrow(malades_outside) < n_outside_malades) {
   
   # Garder les points éloignés des clusters
   outside <- rowSums(distances < mean_radius * 2) == 0  # Ajuster la zone d'exclusion
-  malades_outside <- rbind(malades_outside, candidates[outside, ])
+  malades_outside <- rbind(
+    malades_outside,
+    data.frame(
+      id = NA, 
+      x = candidates[outside, "x"], 
+      y = candidates[outside, "y"], 
+      malade = 1
+    )
+  )
   malades_outside <- malades_outside[1:n_outside_malades, ]  # Limiter au nombre requis
 }
 
@@ -123,7 +126,7 @@ malades_outside$id <- sample(setdiff(population$id, malades_clusters$id), nrow(m
 # Fusionner les malades
 malades <- rbind(
   malades_clusters[, c("id", "x", "y", "malade")],
-  cbind(malades_outside, malade = 1)
+  malades_outside[, c("id", "x", "y", "malade")]
 )
 
 # Ajouter les malades à la population globale
@@ -138,20 +141,47 @@ malades_clusters_plot <- malades_clusters
 malades_outside_plot <- subset(population, malade == 1 & !(id %in% malades_clusters$id))
 
 ggplot() +
-  geom_point(data = malades_outside_plot, aes(x = x, y = y), color = "blue", size = 1.5, alpha = 0.7) +
-  geom_point(data = malades_clusters_plot, aes(x = x, y = y), color = "red", size = 1.5, alpha = 0.7) +
-  geom_point(data = centres_malades, aes(x = x, y = y), color = "black", size = 3, shape = 8) +
+  geom_point(data = malades_outside_plot, aes(x = x, y = y), color = "blue", size = 0.9, alpha = 0.7) +
+  geom_point(data = malades_clusters_plot, aes(x = x, y = y), color = "red", size = 0.9, alpha = 0.7) +
+  geom_point(data = centres_malades, aes(x = x, y = y), color = "black", size = 0.5, shape = 8) +
   labs(title = "Répartition des malades : clusters (rouge) et hors clusters (bleu)",
        x = "X", y = "Y") +
   coord_fixed(ratio = 1, xlim = c(0, 1000), ylim = c(0, 1000)) +
   theme_minimal() +
   theme(plot.title = element_text(hjust = 0.5, size = 16))
 
+
 ```
 
-
+Création des PSU
 
 ```{r}
+# Étape 4 : Création de PSU réguliers (15x15) dans l'espace 1000x1000
+psu_size <- 15  # Taille d'un PSU
+
+# Calculer les limites des PSU
+psu_x_limits <- seq(0, 1000, by = 1000/psu_size)
+psu_y_limits <- seq(0, 1000, by = 1000/psu_size)
+
+# Attribuer chaque individu à une PSU
+population$psu_x <- cut(population$x, breaks = psu_x_limits, labels = FALSE, include.lowest = TRUE)
+population$psu_y <- cut(population$y, breaks = psu_y_limits, labels = FALSE, include.lowest = TRUE)
+
+
+# Étape 5 : Créer un tableau récapitulatif du nombre d'individus et de malades par PSU
+psu_counts <- population %>%
+  group_by(psu_x, psu_y) %>%
+  summarise(
+    total_individus = n(),
+    malades = sum(malade),
+    .groups = "drop"
+  ) # On perd certains individus (moins de 0.001%, négligable)
+
+# On rajoute la colonne pour identifié les PSU
+psu_counts$PSU <- seq(1, 225, by = 1)
+
+psu_counts <- psu_counts[1:nrow(psu_counts) - 1, ] # on supprime les éléments qui n'appartient pas à des PSU
+
 
 ```
 
