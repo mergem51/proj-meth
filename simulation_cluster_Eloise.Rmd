@@ -1,5 +1,5 @@
 ---
-title: "simulation_cluster"
+title: "simulation_cluster_Eloïse"
 output: html_document
 date: "2025-01-11"
 ---
@@ -258,7 +258,7 @@ for (iteration in 1:n_iterations) {
     PSU_precedente <- chemin_mc_posa_tempo[i - 1]
     
     # Mise à jour des probabilités des PSU voisines si la PSU précédente est malade
-    if (!(is.null(psu_selectionnees[[PSU_precedente]])) & (runif(n = 1, min = 0, max = 1) < psu_counts$proba_initiale[1])) {
+    if (!(is.null(psu_selectionnees[[PSU_precedente]])) & psu_counts$PSU_malade[PSU_precedente]) {
       psu_counts$proba_mise_a_jour[PSU_actuelle] <- 1
       psu_selectionnees[[PSU_actuelle]] <- psu_counts[PSU_actuelle, ]
     } else {
@@ -294,6 +294,7 @@ summary(resultats_simulation_posa)
 # A modifier en fonction du taux de clustering
 resultats_simulation_posa$taux_cluster <- 0.7
 
+
 # A la première itération
 resultats_simulation_posa_final <- resultats_simulation_posa
 
@@ -320,6 +321,13 @@ ggplot(resultats_simulation_posa_final, aes(x = as.factor(taux_cluster), y = nom
 
 ```
 
+
+
+
+
+
+## Simulation de Monte-Carlo pour la méthode CPoSA (à optimiser, ~1h pour 2300 simulation)
+
 ```{r}
 set.seed(123) 
 n_iterations <- 100
@@ -337,8 +345,6 @@ resultats_simulation_cposa <- data.frame(
 
 ```
 
-
-## Simulation de Monte-Carlo pour la méthode CPoSA (à optimiser, ~1h pour 2300 simulation)
 
 ```{r}
 
@@ -366,7 +372,7 @@ for (iteration in 1:n_iterations) {
     PSU_precedente <- chemin_mc_posa_tempo[i - 1]
     
     # Mise à jour des probabilités des PSU voisines si la PSU précédente est malade
-    if (!(is.null(psu_selectionnees[[PSU_precedente]])) & (runif(n = 1, min = 0, max = 1) < psu_counts$proba_initiale[1])) {
+    if (!(is.null(psu_selectionnees[[PSU_precedente]])) & psu_counts$PSU_malade[PSU_precedente]) {
       psu_counts$proba_mise_a_jour[PSU_actuelle] <- 1
       psu_selectionnees[[PSU_actuelle]] <- psu_counts[PSU_actuelle, ]
     } else { 
@@ -507,4 +513,3 @@ plot_malades
 
 
 ```
- 
