@@ -146,11 +146,11 @@ ggplot() +
   theme(plot.title = element_text(hjust = 0.5, size = 16))
 
 
-```
+
 
 ## Création des PSU
 
-```{r}
+
 # Étape 4 : Création de PSU réguliers (15x15) dans l'espace 1000x1000
 psu_size <- 15  # Taille d'un PSU
 
@@ -181,12 +181,11 @@ psu_counts$Y_h <- psu_counts$malades / psu_counts$total_individus
 # On détermine d'abord pour chaque PSU si elle est malade ou pas. Si la prévalence dans une PSU est supérieure à 0.5%, alors on dira que cette PSU est malade. Sinon, cette PSU n'est pas malade. 
 psu_counts$PSU_malade <- psu_counts$Y_h > 0.005
 
-```
 
 
 ## Détermination de l'ordre de visite des PSU 
 
-```{r}
+
 # Création d'un chemin "serpent" pour parcourir les PSU
 # D'abord on initialise un vecteur nul qui contiendra par la suite les PSU dans l'ordre de visite.
 chemin <- NULL
@@ -229,9 +228,11 @@ resultats_simulation_posa <- data.frame(
 
 
 
-## Simulation Monte-Carlo PoSA (on retombe sur des résultats similaires pour un taux de cluster de 50%)
+## Simulation Monte-Carlo PoSA (à modifier, sum(pi(0)) ne minimise pas le nombre de PSU tirés)
 
 ```{r}
+i = 0
+n_min = 27
 
 for (iteration in 1:n_iterations) {
   
@@ -251,9 +252,19 @@ for (iteration in 1:n_iterations) {
   }
   
   chemin_mc_posa_tempo <- chemin_mc_posa
+
+  # Vérifier si la somme des probabilités est supèrieur à n_min
+  if (sum(psu_counts$proba_initiale) < n_min) {
+  facteur_ajustement <- n_min / sum(psu_counts$proba_initiale)
+  # Ajuster les probabilités pour que leur somme soit égale à n_min
+  psu_counts$proba_initiale <- psu_counts$proba_initiale * facteur_ajustement
+  i = i + 1
+  }
+  
   
   # Parcours des PSU pour sélection adaptative
   for (i in 2:225) { 
+    
     PSU_actuelle <- chemin_mc_posa_tempo[i]
     PSU_precedente <- chemin_mc_posa_tempo[i - 1]
     
@@ -261,6 +272,7 @@ for (iteration in 1:n_iterations) {
     if (!(is.null(psu_selectionnees[[PSU_precedente]])) & psu_counts$PSU_malade[PSU_precedente]) {
       psu_counts$proba_mise_a_jour[PSU_actuelle] <- 1
       psu_selectionnees[[PSU_actuelle]] <- psu_counts[PSU_actuelle, ]
+
     } else {
       # Sélection avec la probabilité d'inclusion initiale ou mise à jour
       if (runif(n = 1, min = 0, max = 1) < psu_counts$proba_mise_a_jour[PSU_actuelle]) {
@@ -348,6 +360,9 @@ resultats_simulation_cposa <- data.frame(
 
 ```{r}
 
+n_min = 27
+i = 0
+
 for (iteration in 1:n_iterations) {
   # Initialisation des données et des probabilités
   psu_counts <- psu_counts %>% 
@@ -365,22 +380,33 @@ for (iteration in 1:n_iterations) {
   }
   
   chemin_mc_cposa_tempo <- chemin_mc_cposa
+  total_individus_selectionnes <- 0  # Compteur pour le total des individus sélectionnés
+  
+  # Vérifier si la somme des probabilités initiales est supèrieur à n_min
+  if (sum(psu_counts$proba_initiale) < n_min) {
+  facteur_ajustement <- n_min / sum(psu_counts$proba_initiale)
+  # Ajuster les probabilités pour que leur somme soit égale à n_min
+  psu_counts$proba_initiale <- psu_counts$proba_initiale * facteur_ajustement
+  i = i + 1
+  }
   
   # Parcours des PSU pour sélection adaptative
   for (i in 2:224) { 
-    PSU_actuelle <- chemin_mc_posa_tempo[i]
-    PSU_precedente <- chemin_mc_posa_tempo[i - 1]
+    
+    PSU_actuelle <- chemin_mc_cposa_tempo[i]
+    PSU_precedente <- chemin_mc_cposa_tempo[i - 1]
     
     # Mise à jour des probabilités des PSU voisines si la PSU précédente est malade
     if (!(is.null(psu_selectionnees[[PSU_precedente]])) & psu_counts$PSU_malade[PSU_precedente]) {
       psu_counts$proba_mise_a_jour[PSU_actuelle] <- 1
       psu_selectionnees[[PSU_actuelle]] <- psu_counts[PSU_actuelle, ]
+      
     } else { 
           # Met à jour les probabilités des PSUs allant de i+2 à 225 avant de continuer
         for (j in (i+1):225) {
           # Mise à jour de la probabilité d'inclusion selon la formule (49)
           psu_counts$proba_mise_a_jour[j] <- psu_counts$proba_mise_a_jour[j] + 
-                                           (psu_counts$proba_mise_a_jour[j] / (225 - i)) 
+                                           (psu_counts$proba_mise_a_jour[j] / (psu_size - i)) 
       
         }
     
@@ -438,6 +464,7 @@ ggplot(resultats_simulation_cposa_final, aes(x = as.factor(taux_cluster), y = no
        y = "Nombre de malades") +
   theme_minimal()
 
+
 ```
 
 
@@ -490,26 +517,50 @@ resultats_combines <- rbind(resultats_simulation_posa_final, resultats_simulatio
 resultats_combines$groupe <- factor(resultats_combines$groupe, levels = c("PoSA", "CPoSA"))
 
 # Graphique pour la taille de l'échantillon
-plot_taille <- ggplot(resultats_combines, aes(x = as.factor(taux_cluster), y = taille_echantillon, fill = groupe)) +
+plot_taille_nwho <- ggplot(resultats_combines, aes(x = as.factor(taux_cluster), y = taille_echantillon, fill = groupe)) +
   geom_boxplot(position = position_dodge(0.8), color = "black") +
-  labs(title = "Boxplot de la taille de l'échantillon par taux_cluster",
+  labs(title = "Boxplot de la taille de l'échantillon par taux_cluster : n_min = 0.7 n_who",
        x = "Taux Cluster",
        y = "Taille de l'échantillon") +
   scale_fill_manual(values = c("PoSA" = "skyblue", "CPoSA" = "steelblue")) +
   theme_minimal()
 
 # Graphique pour le nombre de malades
-plot_malades <- ggplot(resultats_combines, aes(x = as.factor(taux_cluster), y = nombre_malades, fill = groupe)) +
+plot_malades_nwho <- ggplot(resultats_combines, aes(x = as.factor(taux_cluster), y = nombre_malades, fill = groupe)) +
   geom_boxplot(position = position_dodge(0.8), color = "black") +
-  labs(title = "Boxplot du nombre de malades par taux_cluster",
+  labs(title = "Boxplot du nombre de malades par taux_cluster : n_min = 0.7 n_who",
        x = "Taux Cluster",
        y = "Nombre de malades") +
   scale_fill_manual(values = c("PoSA" = "salmon", "CPoSA" = "darkred")) +
   theme_minimal()
 
 # Affichage des deux graphiques
-plot_taille
-plot_malades
-
+plot_taille_08_nwho
+plot_malades_08_nwho
+plot_taille_07_nwho
+plot_malades_07_nwho
+plot_taille_nwho
+plot_malades_nwho
 
 ```
+
+```{r}
+library(patchwork)
+
+# Exemple : Supposons que les graphiques sont déjà créés et stockés dans des variables
+# plot_taille_08_nwho, plot_malades_08_nwho, plot_taille_07_nwho, etc.
+# Les graphiques doivent être des objets ggplot.
+
+# Combinaison des graphiques : trois "taille" sur une ligne et trois "malades" sur une autre ligne
+combined_plot <- 
+  (plot_taille_08_nwho + plot_taille_07_nwho + plot_taille_nwho) /  # Ligne des tailles
+  (plot_malades_08_nwho + plot_malades_07_nwho + plot_malades_nwho)  # Ligne des malades
+
+# Affichage du graphique combiné
+plot(combined_plot)
+
+# Sauvegarde du graphique combiné
+ggsave("combined_plot.png", combined_plot, width = 12, height = 8)
+
+```
+
