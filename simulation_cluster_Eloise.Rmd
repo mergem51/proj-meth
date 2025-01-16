@@ -131,7 +131,7 @@ population[population$id %in% malades$id, c("x", "y", "malade")] <- malades[, c(
 # Étape 4 : Visualisation
 library(ggplot2)
 
-# Séparer malades dans et hors clusters pour visualisation
+# Séparerles malades dans et hors clusters pour la visualisation
 malades_clusters_plot <- malades_clusters
 malades_outside_plot <- subset(population, malade == 1 & !(id %in% malades_clusters$id))
 
@@ -152,7 +152,7 @@ ggplot() +
 
 
 # Étape 4 : Création de PSU réguliers (15x15) dans l'espace 1000x1000
-psu_size <- 15  # Taille d'un PSU
+psu_size <- 15  
 
 # Calculer les limites des PSU
 psu_x_limits <- seq(0, 1000, by = 1000/psu_size)
@@ -163,14 +163,14 @@ population$psu_x <- cut(population$x, breaks = psu_x_limits, labels = FALSE, inc
 population$psu_y <- cut(population$y, breaks = psu_y_limits, labels = FALSE, include.lowest = TRUE)
 
 
-# Étape 5 : Créer un tableau récapitulatif du nombre d'individus et de malades par PSU
+# Étape 5 : Créer un tableau récapitulatif du nombre d'individus et des malades par PSU
 psu_counts <- population %>%
   group_by(psu_x, psu_y) %>%
   summarise(
     total_individus = n(),
     malades = sum(malade),
     .groups = "drop"
-  ) # On perd certains individus (moins de 0.001%, négligable)
+  ) 
 
 # On rajoute la colonne pour identifier les PSU
 psu_counts$PSU <- seq(1, 225, by = 1)
