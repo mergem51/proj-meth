@@ -640,9 +640,36 @@ resultats_simulation_prop_final <- results_df
 # Pour le reste
 resultats_simulation_prop_final <- rbind(resultats_simulation_prop_final,results_df)
 
-resultats_simulation_prop_final$m_ech <- 0
 
 ```
+```{r}
+# Graphique pour Total_Individus
+plot_total_individus <- ggplot(resultats_simulation_prop_final, aes(x = as.factor(taux_cluster), y = Total_Individus)) +
+  geom_boxplot(fill = "skyblue", color = "black") +
+  labs(
+    title = "Boxplot du total d'individus par taux_cluster",
+    x = "Taux Cluster",
+    y = "Total d'individus"
+  ) +
+  theme_minimal()
+
+# Graphique pour Total_Malades
+plot_total_malades <- ggplot(resultats_simulation_prop_final, aes(x = as.factor(taux_cluster), y = Total_Malades)) +
+  geom_boxplot(fill = "salmon", color = "black") +
+  labs(
+    title = "Boxplot du total de malades par taux_cluster",
+    x = "Taux Cluster",
+    y = "Total de malades"
+  ) +
+  theme_minimal()
+
+# Affichage des graphiques
+print(plot_total_individus)
+print(plot_total_malades)
+
+
+```
+
 
 ## Plot global PoSA vs CPoSA vs prop
 
@@ -659,10 +686,10 @@ resultats_simulation_prop_final$groupe <- "Prop"
 resultats_combines_total <- rbind(resultats_combines, resultats_simulation_prop_final)
 
 # Fixer l'ordre des groupes (PoSA avant CPoSA)
-resultats_combines$groupe <- factor(resultats_combines$groupe, levels = c("PoSA", "CPoSA"))
+resultats_combines_total$groupe <- factor(resultats_combines$groupe, levels = c("PoSA", "CPoSA","Prop"))
 
 # Graphique pour la taille de l'échantillon
-plot_taille_nwho <- ggplot(resultats_combines, aes(x = as.factor(taux_cluster), y = taille_echantillon, fill = groupe)) +
+plot_taille_nwho <- ggplot(resultats_combines_total, aes(x = as.factor(taux_cluster), y = taille_echantillon, fill = groupe)) +
   geom_boxplot(position = position_dodge(0.8), color = "black") +
   labs(title = "Boxplot de la taille de l'échantillon par taux_cluster : n_min = 0.7 n_who",
        x = "Taux Cluster",
@@ -678,13 +705,5 @@ plot_malades_nwho <- ggplot(resultats_combines, aes(x = as.factor(taux_cluster),
        y = "Nombre de malades") +
   scale_fill_manual(values = c("PoSA" = "salmon", "CPoSA" = "darkred")) +
   theme_minimal()
-
-# Affichage des deux graphiques
-plot_taille_08_nwho
-plot_malades_08_nwho
-plot_taille_07_nwho
-plot_malades_07_nwho
-plot_taille_nwho
-plot_malades_nwho
 
 ```
