@@ -49,7 +49,7 @@ centres_malades <- data.frame(
 ```{r}
 # Étape 3 : Génération des malades
 prop_malades <- 0.005  # Proportion totale de malades dans la population
-prop_clusters <- 0.01 # Proportion de malades dans les clusters
+prop_clusters <- 0.4 # Proportion de malades dans les clusters
 n_malades <- round(n_total * prop_malades)  # Nombre total de malades
 n_cluster_malades <- round(n_malades * prop_clusters)  # Nombre de malades dans les clusters
 n_outside_malades <- n_malades - n_cluster_malades  # Nombre de malades hors clusters
@@ -182,13 +182,13 @@ psu_counts$Y_h <- psu_counts$malades / psu_counts$total_individus
 # On détermine d'abord pour chaque PSU si elle est malade ou pas. Si la prévalence dans une PSU est supérieure à 0.5%, alors on dira que cette PSU est malade. Sinon, cette PSU n'est pas malade. 
 psu_counts$PSU_malade <- psu_counts$Y_h > 0.005
 
-```
+
 
 ## Détermination de l'ordre de visite des PSU 
 
 ## Chemin GTRS
 
-```{r}
+
 
 # On va créer des blocs de taille 3*3 (c'est-à-dire que chaque bloc contient 9 PSU, et on a au total 5*5=25 blocs).
 bloc_size <- 3
@@ -295,68 +295,74 @@ resultats_simulation_posa <- data.frame(
 
 
 
-## Simulation Monte-Carlo PoSA (à modifier, sum(pi(0)) ne minimise pas le nombre de PSU tirés)
+## Simulation Monte-Carlo PoSA 
 
 ```{r}
 i = 0
-n_min = 20
+n_min = 0.7*29290  # Taille minimale en termes d'individus
+m_min = 21   # Nombre minimal de PSU sélectionnées
 
 for (iteration in 1:n_iterations) {
   
-  # Initialisation des données et des probabilités
-  psu_counts <- psu_counts %>% 
-    mutate(proba_initiale = total_individus / sum(total_individus) * 27)
-  
-  # Initialisation des probabilités mises à jour (au départ égales aux probabilités initiales)
-  psu_counts$proba_mise_a_jour <- psu_counts$proba_initiale
-  
-  # Initialisation de la liste des PSU sélectionnées
-  psu_selectionnees <- vector("list", length = psu_size * psu_size)
-  
-  # Sélection de la première PSU avec sa probabilité initiale
-  if (runif(n = 1, min = 0, max = 1) < psu_counts$proba_initiale[1]) {
-    psu_selectionnees[[1]] <- psu_counts[1, ]
-  }
-  
-  chemin_mc_posa_tempo <- chemin_mc_posa
-
-  # Vérifier si la somme des probabilités est supèrieur à n_min
-  if (sum(psu_counts$proba_initiale) < n_min) {
-  facteur_ajustement <- n_min / sum(psu_counts$proba_initiale)
-  # Ajuster les probabilités pour que leur somme soit égale à n_min
-  psu_counts$proba_initiale <- psu_counts$proba_initiale * facteur_ajustement
-  i = i + 1
-  }
-  
-  
-  # Parcours des PSU pour sélection adaptative
-  for (h in 2:225) { 
+  repeat {
+    # Initialisation des données et des probabilités
+    psu_counts <- psu_counts %>% 
+      mutate(proba_initiale = total_individus / sum(total_individus) * 27)
     
-    PSU_actuelle <- chemin_mc_posa_tempo[h]
-    PSU_precedente <- chemin_mc_posa_tempo[h - 1]
+    # Initialisation des probabilités mises à jour (au départ égales aux probabilités initiales)
+    psu_counts$proba_mise_a_jour <- psu_counts$proba_initiale
     
-    # Mise à jour des probabilités des PSU voisines si la PSU précédente est malade
-    if (!(is.null(psu_selectionnees[[PSU_precedente]])) & psu_counts$PSU_malade[PSU_precedente]) {
-      psu_counts$proba_mise_a_jour[PSU_actuelle] <- 1
-      psu_selectionnees[[PSU_actuelle]] <- psu_counts[PSU_actuelle, ]
-
-    } else {
-      # Sélection avec la probabilité d'inclusion initiale ou mise à jour
-      if (runif(n = 1, min = 0, max = 1) < psu_counts$proba_mise_a_jour[PSU_actuelle]) {
+    # Initialisation de la liste des PSU sélectionnées
+    psu_selectionnees <- vector("list", length = psu_size * psu_size)
+    
+    # Sélection de la première PSU avec sa probabilité initiale
+    if (runif(n = 1, min = 0, max = 1) < psu_counts$proba_initiale[1]) {
+      psu_selectionnees[[1]] <- psu_counts[1, ]
+    }
+    
+    chemin_mc_posa_tempo <- chemin_mc_posa
+    
+    # Vérifier si la somme des probabilités est inférieure à m_min
+    if (sum(psu_counts$proba_initiale) < m_min) {
+      facteur_ajustement <- m_min / sum(psu_counts$proba_initiale)
+      # Ajuster les probabilités pour que leur somme soit égale à m_min
+      psu_counts$proba_initiale <- psu_counts$proba_initiale * facteur_ajustement
+      i = i + 1
+    }
+    
+    # Parcours des PSU pour sélection adaptative
+    for (h in 2:225) { 
+      
+      PSU_actuelle <- chemin_mc_posa_tempo[h]
+      PSU_precedente <- chemin_mc_posa_tempo[h - 1]
+      
+      # Mise à jour des probabilités des PSU voisines si la PSU précédente est malade
+      if (!(is.null(psu_selectionnees[[PSU_precedente]])) & psu_counts$PSU_malade[PSU_precedente]) {
+        psu_counts$proba_mise_a_jour[PSU_actuelle] <- 1
         psu_selectionnees[[PSU_actuelle]] <- psu_counts[PSU_actuelle, ]
+        
+      } else {
+        # Sélection avec la probabilité d'inclusion initiale ou mise à jour
+        if (runif(n = 1, min = 0, max = 1) < psu_counts$proba_mise_a_jour[PSU_actuelle]) {
+          psu_selectionnees[[PSU_actuelle]] <- psu_counts[PSU_actuelle, ]
+        }
       }
     }
+    
+    # Calcul des résultats pour cette itération
+    m_ech <- nrow(as.data.frame(do.call(rbind, psu_selectionnees))) 
+    taille_echantillon <- sum(sapply(psu_selectionnees, function(psu) if (!is.null(psu)) psu$total_individus else 0))
+    nombre_malades <- sum(sapply(psu_selectionnees, function(psu) if (!is.null(psu) && psu$PSU_malade) psu$malades else 0))
+    
+    # Vérification des conditions m_min 
+    if (taille_echantillon >= m_min) {
+      # Enregistrement des résultats si les deux conditions sont respectées
+      resultats_simulation_posa[iteration, "taille_echantillon"] <- taille_echantillon
+      resultats_simulation_posa[iteration, "nombre_malades"] <- nombre_malades
+      resultats_simulation_posa[iteration, "m_ech"] <- m_ech
+      break  # Sortir de la boucle repeat
+    }
   }
-  
-  # Calcul des résultats pour cette itération
-  m_ech <- nrow(as.data.frame(do.call(rbind, psu_selectionnees))) 
-  taille_echantillon <- sum(sapply(psu_selectionnees, function(psu) if (!is.null(psu)) psu$total_individus else 0))
-  nombre_malades <- sum(sapply(psu_selectionnees, function(psu) if (!is.null(psu) && psu$PSU_malade) psu$malades else 0))
-  
-  # Enregistrement des résultats
-  resultats_simulation_posa[iteration, "taille_echantillon"] <- taille_echantillon
-  resultats_simulation_posa[iteration, "nombre_malades"] <- nombre_malades
-  resultats_simulation_posa[iteration, "m_ech"] <- m_ech
 }
 
 # Résumé des résultats
@@ -371,7 +377,7 @@ summary(resultats_simulation_posa)
 
 ```{r}
 # A modifier en fonction du taux de clustering
-resultats_simulation_posa$taux_cluster <- 0.01
+resultats_simulation_posa$taux_cluster <- 0.3
 
 
 # A la première itération
@@ -384,14 +390,14 @@ resultats_simulation_posa_final <- rbind(resultats_simulation_posa_final,resulta
 ## Visualisation, très peu de différences sur les tailles d'échantillon, légère baisse du nombre de cas captés
 
 ```{r}
-ggplot(resultats_simulation_posa_final, aes(x = as.factor(taux_cluster), y = taille_echantillon)) +
+plot_taille_nwho <- ggplot(resultats_simulation_posa_final, aes(x = as.factor(taux_cluster), y = taille_echantillon)) +
   geom_boxplot(fill = "skyblue", color = "black") +
   labs(title = "Boxplot de tailles_echantillon par taux_cluster",
        x = "Taux Cluster",
        y = "Taille de l'échantillon") +
   theme_minimal()
 
-ggplot(resultats_simulation_posa_final, aes(x = as.factor(taux_cluster), y = nombre_malades)) +
+plot_malades_nwho <- ggplot(resultats_simulation_posa_final, aes(x = as.factor(taux_cluster), y = nombre_malades)) +
   geom_boxplot(fill = "salmon", color = "black") +
   labs(title = "Boxplot de nombre_malades par taux_cluster",
        x = "Taux Cluster",
@@ -505,7 +511,7 @@ summary(resultats_simulation_cposa)
 
 ```{r}
 # A modifier en fonction du taux de clustering
-resultats_simulation_cposa$taux_cluster <- 0.7
+resultats_simulation_cposa$taux_cluster <- 0.01
 
 # A la première itération
 resultats_simulation_cposa_final <- resultats_simulation_cposa
@@ -616,8 +622,7 @@ library(patchwork)
 
 # Combinaison des graphiques 
 combined_plot <- 
-  (plot_taille_08_nwho + plot_taille_07_nwho + plot_taille_nwho) /  # Ligne des tailles
-  (plot_malades_08_nwho + plot_malades_07_nwho + plot_malades_nwho)  # Ligne des malades
+  (plot_taille_08_nwho + plot_taille_07_nwho + plot_taille_nwho)   # Ligne des malades
 
 # Affichage du graphique combiné
 plot(combined_plot)
