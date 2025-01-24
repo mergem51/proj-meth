@@ -49,7 +49,7 @@ centres_malades <- data.frame(
 ```{r}
 # Étape 3 : Génération des malades
 prop_malades <- 0.005  # Proportion totale de malades dans la population
-prop_clusters <- 0.7 # Proportion de malades dans les clusters
+prop_clusters <- 0.01 # Proportion de malades dans les clusters
 n_malades <- round(n_total * prop_malades)  # Nombre total de malades
 n_cluster_malades <- round(n_malades * prop_clusters)  # Nombre de malades dans les clusters
 n_outside_malades <- n_malades - n_cluster_malades  # Nombre de malades hors clusters
@@ -182,9 +182,75 @@ psu_counts$Y_h <- psu_counts$malades / psu_counts$total_individus
 # On détermine d'abord pour chaque PSU si elle est malade ou pas. Si la prévalence dans une PSU est supérieure à 0.5%, alors on dira que cette PSU est malade. Sinon, cette PSU n'est pas malade. 
 psu_counts$PSU_malade <- psu_counts$Y_h > 0.005
 
-
+```
 
 ## Détermination de l'ordre de visite des PSU 
+
+## Chemin GTRS
+
+```{r}
+
+# On va créer des blocs de taille 3*3 (c'est-à-dire que chaque bloc contient 9 PSU, et on a au total 5*5=25 blocs).
+bloc_size <- 3
+nb_blocs_par_ligne_ou_colonne <- psu_size / bloc_size
+
+# On ajoute l'identifiant des blocs pour chaque case
+# On utilisera l'opérateur %/% qui permet d'obtenir le quotient d'une division euclidienne
+psu_bloc <- psu_counts %>%
+  mutate(
+    bloc_ligne_x = (psu_x - 1) %/% bloc_size + 1, # le numéro de ligne du bloc (entre 1 et 5)
+    bloc_colonne_y = (psu_y - 1) %/% bloc_size + 1, # le numéro de colonne du bloc (entre 1 et 5)
+    bloc_id = (bloc_ligne_x - 1) * nb_blocs_par_ligne_ou_colonne + bloc_colonne_y # le numéro du bloc entre 1 et 25 sachant qu'ils sont parcourus dans l'ordre de la lecture (c'est-à-dire de gauche à droite pour chaque ligne, de la ligne la plus haute à la ligne la plus basse)
+  )
+
+chemin_blocs <- NULL
+# Ensuite, on va créer une boucle qui ajoute les blocs dans l'ordre selon si la ligne doit se parcourir de gauche à droite (pour les lignes ayant un numéro impair) ou de droite à gauche (pour les lignes ayant un numéro pair)
+for (i in 1:5) {
+  if (i %% 2 == 1) {
+    # Ligne impaire : de gauche à droite
+    chemin_blocs <- c(chemin_blocs, seq((i-1) * 5 + 1, i * 5))
+  } else {
+    # Ligne paire : de droite à gauche
+    chemin_blocs <- c(chemin_blocs, seq(i * 5, (i-1) * 5 + 1, by = -1))
+  }
+}
+chemin_blocs # numéros des blocs de 3*3 PSU dans l'ordre où ces blocs devront être visités
+# cela correspond à l'ordre à utiliser pour parcourir les blocs (colonne bloc_id de la table psu_bloc)
+
+# On définit l'ordre de parcours dans chaque bloc
+psu_bloc <- psu_bloc %>%
+  mutate(
+    ordre_dans_le_bloc = case_when(
+      psu_y %in% c(1, 4, 7, 10, 13) & psu_x %in% c(1, 4, 7, 10, 13) ~ 1,
+      psu_y %in% c(1, 4, 7, 10, 13) & psu_x %in% c(2, 5, 8, 11, 14) ~ 2,
+      psu_y %in% c(1, 4, 7, 10, 13) & psu_x %in% c(3, 6, 9, 12, 15) ~ 3,
+      psu_y %in% c(2, 5, 8, 11, 14) & psu_x %in% c(3, 6, 9, 12, 15) ~ 4,      
+      psu_y %in% c(2, 5, 8, 11, 14) & psu_x %in% c(2, 5, 8, 11, 14) ~ 5,
+      psu_y %in% c(2, 5, 8, 11, 14) & psu_x %in% c(1, 4, 7, 10, 13) ~ 6,
+      psu_y %in% c(3, 6, 9, 12, 15) & psu_x %in% c(1, 4, 7, 10, 13) ~ 7,
+      psu_y %in% c(3, 6, 9, 12, 15) & psu_x %in% c(2, 5, 8, 11, 14) ~ 8,
+      psu_y %in% c(3, 6, 9, 12, 15) & psu_x %in% c(3, 6, 9, 12, 15) ~ 9,
+      TRUE ~ NA_real_ # Valeur par défaut si aucune condition n'est remplie
+    )
+  )
+
+chemin <- NULL
+for (i in chemin_blocs) {
+  for (j in 1:9) {
+    le_bon_PSU <- psu_bloc %>% 
+      filter(bloc_id == i & ordre_dans_le_bloc == j)
+    chemin <- c(chemin, le_bon_PSU$PSU)
+  }
+}
+
+chemin_mc_posa <- chemin
+chemin_mc_cposa <- chemin
+
+```
+
+
+## Chemin serpent 
+```{r}
 
 
 # Création d'un chemin "serpent" pour parcourir les PSU
@@ -233,7 +299,7 @@ resultats_simulation_posa <- data.frame(
 
 ```{r}
 i = 0
-n_min = 27
+n_min = 20
 
 for (iteration in 1:n_iterations) {
   
@@ -305,7 +371,7 @@ summary(resultats_simulation_posa)
 
 ```{r}
 # A modifier en fonction du taux de clustering
-resultats_simulation_posa$taux_cluster <- 0.7
+resultats_simulation_posa$taux_cluster <- 0.01
 
 
 # A la première itération
@@ -343,7 +409,7 @@ ggplot(resultats_simulation_posa_final, aes(x = as.factor(taux_cluster), y = nom
 
 ```{r}
 set.seed(123) 
-n_iterations <- 100
+n_iterations <- 300
 
 # Création d'une matrice pour stocker les résultats
 resultats_simulation_cposa_final <- data.frame(
@@ -361,7 +427,7 @@ resultats_simulation_cposa <- data.frame(
 
 ```{r}
 
-n_min = 27
+n_min = 20
 i = 0
 
 for (iteration in 1:n_iterations) {
@@ -566,7 +632,7 @@ ggsave("combined_plot.png", combined_plot, width = 12, height = 8)
 
 ```{r}
 
-n_min <- 20
+n_min <- 27
 
 # Initialisation des données et des probabilités
 psu_counts <- psu_counts %>% 
@@ -642,9 +708,10 @@ resultats_simulation_prop_final <- rbind(resultats_simulation_prop_final,results
 
 
 ```
+
 ```{r}
 # Graphique pour Total_Individus
-plot_total_individus <- ggplot(resultats_simulation_prop_final, aes(x = as.factor(taux_cluster), y = Total_Individus)) +
+plot_total_individus_nwho <- ggplot(resultats_simulation_prop_final, aes(x = as.factor(taux_cluster), y = Total_Individus)) +
   geom_boxplot(fill = "skyblue", color = "black") +
   labs(
     title = "Boxplot du total d'individus par taux_cluster",
@@ -654,7 +721,7 @@ plot_total_individus <- ggplot(resultats_simulation_prop_final, aes(x = as.facto
   theme_minimal()
 
 # Graphique pour Total_Malades
-plot_total_malades <- ggplot(resultats_simulation_prop_final, aes(x = as.factor(taux_cluster), y = Total_Malades)) +
+plot_total_malades_nwho <- ggplot(resultats_simulation_prop_final, aes(x = as.factor(taux_cluster), y = Total_Malades)) +
   geom_boxplot(fill = "salmon", color = "black") +
   labs(
     title = "Boxplot du total de malades par taux_cluster",
@@ -662,6 +729,14 @@ plot_total_malades <- ggplot(resultats_simulation_prop_final, aes(x = as.factor(
     y = "Total de malades"
   ) +
   theme_minimal()
+
+# Combinaison des graphiques 
+combined_plot <- 
+  (plot_total_individus_07_nwho + plot_total_individus_08_nwho + plot_total_individus_nwho) /  # Ligne des tailles
+  (plot_total_malades_07_nwho + plot_total_malades_08_nwho + plot_total_malades_nwho)  # Ligne des malades
+
+# Affichage du graphique combiné
+plot(combined_plot)
 
 # Affichage des graphiques
 print(plot_total_individus)
