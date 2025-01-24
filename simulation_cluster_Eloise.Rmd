@@ -49,7 +49,7 @@ centres_malades <- data.frame(
 ```{r}
 # Étape 3 : Génération des malades
 prop_malades <- 0.005  # Proportion totale de malades dans la population
-prop_clusters <- 0.4 # Proportion de malades dans les clusters
+prop_clusters <- 0.01 # Proportion de malades dans les clusters
 n_malades <- round(n_total * prop_malades)  # Nombre total de malades
 n_cluster_malades <- round(n_malades * prop_clusters)  # Nombre de malades dans les clusters
 n_outside_malades <- n_malades - n_cluster_malades  # Nombre de malades hors clusters
@@ -355,7 +355,7 @@ for (iteration in 1:n_iterations) {
     nombre_malades <- sum(sapply(psu_selectionnees, function(psu) if (!is.null(psu) && psu$PSU_malade) psu$malades else 0))
     
     # Vérification des conditions m_min 
-    if (taille_echantillon >= m_min) {
+    if (taille_echantillon >= n_min) {
       # Enregistrement des résultats si les deux conditions sont respectées
       resultats_simulation_posa[iteration, "taille_echantillon"] <- taille_echantillon
       resultats_simulation_posa[iteration, "nombre_malades"] <- nombre_malades
@@ -433,77 +433,82 @@ resultats_simulation_cposa <- data.frame(
 
 ```{r}
 
-n_min = 20
+m_min = 21  # Nombre minimal de PSU sélectionnées
+n_min = 0.7*29290 # Taille minimale en termes d'individus
 i = 0
 
 for (iteration in 1:n_iterations) {
-  # Initialisation des données et des probabilités
-  psu_counts <- psu_counts %>% 
-    mutate(proba_initiale = total_individus / sum(total_individus) * 27)
-  
-  # Initialisation des probabilités mises à jour (au départ égales aux probabilités initiales)
-  psu_counts$proba_mise_a_jour <- psu_counts$proba_initiale
-  
-  # Initialisation de la liste des PSU sélectionnées
-  psu_selectionnees <- vector("list", length = psu_size * psu_size)
-  
-  # Sélection de la première PSU avec sa probabilité initiale
-  if (runif(n = 1, min = 0, max = 1) < psu_counts$proba_initiale[1]) {
-    psu_selectionnees[[1]] <- psu_counts[1, ]
-  }
-  
-  chemin_mc_cposa_tempo <- chemin_mc_cposa
-  total_individus_selectionnes <- 0  # Compteur pour le total des individus sélectionnés
-  
-  # Vérifier si la somme des probabilités initiales est supèrieur à n_min
-  if (sum(psu_counts$proba_initiale) < n_min) {
-  facteur_ajustement <- n_min / sum(psu_counts$proba_initiale)
-  # Ajuster les probabilités pour que leur somme soit égale à n_min
-  psu_counts$proba_initiale <- psu_counts$proba_initiale * facteur_ajustement
-  i = i + 1
-  }
-  
-  # Parcours des PSU pour sélection adaptative
-  for (h in 2:224) { 
+  repeat {
+    # Initialisation des données et des probabilités
+    psu_counts <- psu_counts %>% 
+      mutate(proba_initiale = total_individus / sum(total_individus) * 27)
     
-    PSU_actuelle <- chemin_mc_cposa_tempo[h]
-    PSU_precedente <- chemin_mc_cposa_tempo[h - 1]
+    # Initialisation des probabilités mises à jour (au départ égales aux probabilités initiales)
+    psu_counts$proba_mise_a_jour <- psu_counts$proba_initiale
     
-    # Mise à jour des probabilités des PSU voisines si la PSU précédente est malade
-    if (!(is.null(psu_selectionnees[[PSU_precedente]])) & psu_counts$PSU_malade[PSU_precedente]) {
-      psu_counts$proba_mise_a_jour[PSU_actuelle] <- 1
-      psu_selectionnees[[PSU_actuelle]] <- psu_counts[PSU_actuelle, ]
+    # Initialisation de la liste des PSU sélectionnées
+    psu_selectionnees <- vector("list", length = psu_size * psu_size)
+    
+    # Sélection de la première PSU avec sa probabilité initiale
+    if (runif(n = 1, min = 0, max = 1) < psu_counts$proba_initiale[1]) {
+      psu_selectionnees[[1]] <- psu_counts[1, ]
+    }
+    
+    chemin_mc_cposa_tempo <- chemin_mc_cposa
+    total_individus_selectionnes <- 0  # Compteur pour le total des individus sélectionnés
+    
+    # Vérifier si la somme des probabilités initiales est inférieure à m_min
+    if (sum(psu_counts$proba_initiale) < m_min) {
+      facteur_ajustement <- m_min / sum(psu_counts$proba_initiale)
+      # Ajuster les probabilités pour que leur somme soit égale à m_min
+      psu_counts$proba_initiale <- psu_counts$proba_initiale * facteur_ajustement
+      i = i + 1
+    }
+    
+    # Parcours des PSU pour sélection adaptative
+    for (h in 2:224) { 
       
-    } else { 
-          # Met à jour les probabilités des PSUs allant de i+2 à 225 avant de continuer
+      PSU_actuelle <- chemin_mc_cposa_tempo[h]
+      PSU_precedente <- chemin_mc_cposa_tempo[h - 1]
+      
+      # Mise à jour des probabilités des PSU voisines si la PSU précédente est malade
+      if (!(is.null(psu_selectionnees[[PSU_precedente]])) & psu_counts$PSU_malade[PSU_precedente]) {
+        psu_counts$proba_mise_a_jour[PSU_actuelle] <- 1
+        psu_selectionnees[[PSU_actuelle]] <- psu_counts[PSU_actuelle, ]
+        
+      } else { 
+        # Met à jour les probabilités des PSUs allant de h+1 à 225 avant de continuer
         for (j in (h+1):225) {
           # Mise à jour de la probabilité d'inclusion selon la formule (49)
           psu_counts$proba_mise_a_jour[j] <- psu_counts$proba_mise_a_jour[j] + 
-                                           (psu_counts$proba_initiale[j] / (psu_size - i)) 
-      
+                                             (psu_counts$proba_initiale[j] / (psu_size - i)) 
         }
-    
-      # Ensuite, on sélectionne la PSU actuelle avec sa probabilité actualisé
-      if (runif(n = 1, min = 0, max = 1) < psu_counts$proba_mise_a_jour[PSU_actuelle]) {
-        psu_selectionnees[[PSU_actuelle]] <- psu_counts[PSU_actuelle, ]
+        
+        # Ensuite, on sélectionne la PSU actuelle avec sa probabilité actualisée
+        if (runif(n = 1, min = 0, max = 1) < psu_counts$proba_mise_a_jour[PSU_actuelle]) {
+          psu_selectionnees[[PSU_actuelle]] <- psu_counts[PSU_actuelle, ]
+        }
       }
     }
+    
+    # Calcul des résultats pour cette itération
+    m_ech <- nrow(as.data.frame(do.call(rbind, psu_selectionnees))) 
+    taille_echantillon <- sum(sapply(psu_selectionnees, function(psu) if (!is.null(psu)) psu$total_individus else 0))
+    nombre_malades <- sum(sapply(psu_selectionnees, function(psu) if (!is.null(psu) && psu$PSU_malade) psu$malades else 0))
+    
+    # Vérification des conditions m_min et n_min
+    if (taille_echantillon >= n_min) {
+      # Enregistrement des résultats si les deux conditions sont respectées
+      resultats_simulation_cposa[iteration, "taille_echantillon"] <- taille_echantillon
+      resultats_simulation_cposa[iteration, "nombre_malades"] <- nombre_malades
+      resultats_simulation_cposa[iteration, "m_ech"] <- m_ech
+      break  # Sortir de la boucle repeat
+    }
   }
-  
-  # Calcul des résultats pour cette itération
-  m_ech <- nrow(as.data.frame(do.call(rbind, psu_selectionnees))) 
-  taille_echantillon <- sum(sapply(psu_selectionnees, function(psu) if (!is.null(psu)) psu$total_individus else 0))
-  nombre_malades <- sum(sapply(psu_selectionnees, function(psu) if (!is.null(psu) && psu$PSU_malade) psu$malades else 0))
-  
-  # Enregistrement des résultats
-  resultats_simulation_cposa[iteration, "taille_echantillon"] <- taille_echantillon
-  resultats_simulation_cposa[iteration, "nombre_malades"] <- nombre_malades
-  resultats_simulation_cposa[iteration, "m_ech"] <- m_ech
 }
 
 # Résumé des résultats
 summary(resultats_simulation_cposa)
-
 
 ```
 
