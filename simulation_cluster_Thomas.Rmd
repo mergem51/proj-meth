@@ -1,5 +1,5 @@
 ---
-title: "simulation_cluster"
+title: "simulation_cluster_Eloïse"
 output: html_document
 date: "2025-01-11"
 ---
@@ -13,6 +13,7 @@ library(sampling)
 library(MASS)
 library(clusterGeneration)
 library(mvtnorm)
+library(survey)
 ```
 
 
@@ -48,7 +49,7 @@ centres_malades <- data.frame(
 ```{r}
 # Étape 3 : Génération des malades
 prop_malades <- 0.005  # Proportion totale de malades dans la population
-prop_clusters <- 0.7 # Proportion de malades dans les clusters
+prop_clusters <- 0.01 # Proportion de malades dans les clusters
 n_malades <- round(n_total * prop_malades)  # Nombre total de malades
 n_cluster_malades <- round(n_malades * prop_clusters)  # Nombre de malades dans les clusters
 n_outside_malades <- n_malades - n_cluster_malades  # Nombre de malades hors clusters
@@ -131,7 +132,7 @@ population[population$id %in% malades$id, c("x", "y", "malade")] <- malades[, c(
 # Étape 4 : Visualisation
 library(ggplot2)
 
-# Séparer malades dans et hors clusters pour visualisation
+# Séparerles malades dans et hors clusters pour la visualisation
 malades_clusters_plot <- malades_clusters
 malades_outside_plot <- subset(population, malade == 1 & !(id %in% malades_clusters$id))
 
@@ -146,13 +147,13 @@ ggplot() +
   theme(plot.title = element_text(hjust = 0.5, size = 16))
 
 
-```
+
 
 ## Création des PSU
 
-```{r}
+
 # Étape 4 : Création de PSU réguliers (15x15) dans l'espace 1000x1000
-psu_size <- 15  # Taille d'un PSU
+psu_size <- 15  
 
 # Calculer les limites des PSU
 psu_x_limits <- seq(0, 1000, by = 1000/psu_size)
@@ -163,14 +164,14 @@ population$psu_x <- cut(population$x, breaks = psu_x_limits, labels = FALSE, inc
 population$psu_y <- cut(population$y, breaks = psu_y_limits, labels = FALSE, include.lowest = TRUE)
 
 
-# Étape 5 : Créer un tableau récapitulatif du nombre d'individus et de malades par PSU
+# Étape 5 : Créer un tableau récapitulatif du nombre d'individus et des malades par PSU
 psu_counts <- population %>%
   group_by(psu_x, psu_y) %>%
   summarise(
     total_individus = n(),
     malades = sum(malade),
     .groups = "drop"
-  ) # On perd certains individus (moins de 0.001%, négligable)
+  ) 
 
 # On rajoute la colonne pour identifier les PSU
 psu_counts$PSU <- seq(1, 225, by = 1)
@@ -181,12 +182,75 @@ psu_counts$Y_h <- psu_counts$malades / psu_counts$total_individus
 # On détermine d'abord pour chaque PSU si elle est malade ou pas. Si la prévalence dans une PSU est supérieure à 0.5%, alors on dira que cette PSU est malade. Sinon, cette PSU n'est pas malade. 
 psu_counts$PSU_malade <- psu_counts$Y_h > 0.005
 
-```
 
 
 ## Détermination de l'ordre de visite des PSU 
 
+## Chemin GTRS
+
+# On va créer des blocs de taille 3*3 (c'est-à-dire que chaque bloc contient 9 PSU, et on a au total 5*5=25 blocs).
+bloc_size <- 3
+nb_blocs_par_ligne_ou_colonne <- psu_size / bloc_size
+
+# On ajoute l'identifiant des blocs pour chaque case
+# On utilisera l'opérateur %/% qui permet d'obtenir le quotient d'une division euclidienne
+psu_bloc <- psu_counts %>%
+  mutate(
+    bloc_ligne_x = (psu_x - 1) %/% bloc_size + 1, # le numéro de ligne du bloc (entre 1 et 5)
+    bloc_colonne_y = (psu_y - 1) %/% bloc_size + 1, # le numéro de colonne du bloc (entre 1 et 5)
+    bloc_id = (bloc_ligne_x - 1) * nb_blocs_par_ligne_ou_colonne + bloc_colonne_y # le numéro du bloc entre 1 et 25 sachant qu'ils sont parcourus dans l'ordre de la lecture (c'est-à-dire de gauche à droite pour chaque ligne, de la ligne la plus haute à la ligne la plus basse)
+  )
+
+chemin_blocs <- NULL
+# Ensuite, on va créer une boucle qui ajoute les blocs dans l'ordre selon si la ligne doit se parcourir de gauche à droite (pour les lignes ayant un numéro impair) ou de droite à gauche (pour les lignes ayant un numéro pair)
+for (i in 1:5) {
+  if (i %% 2 == 1) {
+    # Ligne impaire : de gauche à droite
+    chemin_blocs <- c(chemin_blocs, seq((i-1) * 5 + 1, i * 5))
+  } else {
+    # Ligne paire : de droite à gauche
+    chemin_blocs <- c(chemin_blocs, seq(i * 5, (i-1) * 5 + 1, by = -1))
+  }
+}
+chemin_blocs # numéros des blocs de 3*3 PSU dans l'ordre où ces blocs devront être visités
+# cela correspond à l'ordre à utiliser pour parcourir les blocs (colonne bloc_id de la table psu_bloc)
+
+# On définit l'ordre de parcours dans chaque bloc
+psu_bloc <- psu_bloc %>%
+  mutate(
+    ordre_dans_le_bloc = case_when(
+      psu_y %in% c(1, 4, 7, 10, 13) & psu_x %in% c(1, 4, 7, 10, 13) ~ 1,
+      psu_y %in% c(1, 4, 7, 10, 13) & psu_x %in% c(2, 5, 8, 11, 14) ~ 2,
+      psu_y %in% c(1, 4, 7, 10, 13) & psu_x %in% c(3, 6, 9, 12, 15) ~ 3,
+      psu_y %in% c(2, 5, 8, 11, 14) & psu_x %in% c(3, 6, 9, 12, 15) ~ 4,      
+      psu_y %in% c(2, 5, 8, 11, 14) & psu_x %in% c(2, 5, 8, 11, 14) ~ 5,
+      psu_y %in% c(2, 5, 8, 11, 14) & psu_x %in% c(1, 4, 7, 10, 13) ~ 6,
+      psu_y %in% c(3, 6, 9, 12, 15) & psu_x %in% c(1, 4, 7, 10, 13) ~ 7,
+      psu_y %in% c(3, 6, 9, 12, 15) & psu_x %in% c(2, 5, 8, 11, 14) ~ 8,
+      psu_y %in% c(3, 6, 9, 12, 15) & psu_x %in% c(3, 6, 9, 12, 15) ~ 9,
+      TRUE ~ NA_real_ # Valeur par défaut si aucune condition n'est remplie
+    )
+  )
+
+chemin <- NULL
+for (i in chemin_blocs) {
+  for (j in 1:9) {
+    le_bon_PSU <- psu_bloc %>% 
+      filter(bloc_id == i & ordre_dans_le_bloc == j)
+    chemin <- c(chemin, le_bon_PSU$PSU)
+  }
+}
+
+chemin_mc_posa <- chemin
+chemin_mc_cposa <- chemin
+
+```
+
+
+## Chemin serpent 
 ```{r}
+
+
 # Création d'un chemin "serpent" pour parcourir les PSU
 # D'abord on initialise un vecteur nul qui contiendra par la suite les PSU dans l'ordre de visite.
 chemin <- NULL
@@ -201,6 +265,69 @@ for (i in 1:psu_size) {
   }
 }
 chemin # numéros des PSU dans l'ordre où ils devront être visités
+
+chemin_mc_posa <- chemin
+chemin_mc_cposa <- chemin
+
+```
+
+
+## Chemin GTRS
+
+```{r}
+
+# On va créer des blocs de taille 3*3 (c'est-à-dire que chaque bloc contient 9 PSU, et on a au total 5*5=25 blocs).
+bloc_size <- 3
+nb_blocs_par_ligne_ou_colonne <- psu_size / bloc_size
+
+# On ajoute l'identifiant des blocs pour chaque case
+# On utilisera l'opérateur %/% qui permet d'obtenir le quotient d'une division euclidienne
+psu_bloc <- psu_counts %>%
+  mutate(
+    bloc_ligne_x = (psu_x - 1) %/% bloc_size + 1, # le numéro de ligne du bloc (entre 1 et 5)
+    bloc_colonne_y = (psu_y - 1) %/% bloc_size + 1, # le numéro de colonne du bloc (entre 1 et 5)
+    bloc_id = (bloc_ligne_x - 1) * nb_blocs_par_ligne_ou_colonne + bloc_colonne_y # le numéro du bloc entre 1 et 25 sachant qu'ils sont parcourus dans l'ordre de la lecture (c'est-à-dire de gauche à droite pour chaque ligne, de la ligne la plus haute à la ligne la plus basse)
+  )
+
+chemin_blocs <- NULL
+# Ensuite, on va créer une boucle qui ajoute les blocs dans l'ordre selon si la ligne doit se parcourir de gauche à droite (pour les lignes ayant un numéro impair) ou de droite à gauche (pour les lignes ayant un numéro pair)
+for (i in 1:5) {
+  if (i %% 2 == 1) {
+    # Ligne impaire : de gauche à droite
+    chemin_blocs <- c(chemin_blocs, seq((i-1) * 5 + 1, i * 5))
+  } else {
+    # Ligne paire : de droite à gauche
+    chemin_blocs <- c(chemin_blocs, seq(i * 5, (i-1) * 5 + 1, by = -1))
+  }
+}
+chemin_blocs # numéros des blocs de 3*3 PSU dans l'ordre où ces blocs devront être visités
+# cela correspond à l'ordre à utiliser pour parcourir les blocs (colonne bloc_id de la table psu_bloc)
+
+# On définit l'ordre de parcours dans chaque bloc
+psu_bloc <- psu_bloc %>%
+  mutate(
+    ordre_dans_le_bloc = case_when(
+      psu_y %in% c(1, 4, 7, 10, 13) & psu_x %in% c(1, 4, 7, 10, 13) ~ 1,
+      psu_y %in% c(1, 4, 7, 10, 13) & psu_x %in% c(2, 5, 8, 11, 14) ~ 2,
+      psu_y %in% c(1, 4, 7, 10, 13) & psu_x %in% c(3, 6, 9, 12, 15) ~ 3,
+      psu_y %in% c(2, 5, 8, 11, 14) & psu_x %in% c(3, 6, 9, 12, 15) ~ 4,      
+      psu_y %in% c(2, 5, 8, 11, 14) & psu_x %in% c(2, 5, 8, 11, 14) ~ 5,
+      psu_y %in% c(2, 5, 8, 11, 14) & psu_x %in% c(1, 4, 7, 10, 13) ~ 6,
+      psu_y %in% c(3, 6, 9, 12, 15) & psu_x %in% c(1, 4, 7, 10, 13) ~ 7,
+      psu_y %in% c(3, 6, 9, 12, 15) & psu_x %in% c(2, 5, 8, 11, 14) ~ 8,
+      psu_y %in% c(3, 6, 9, 12, 15) & psu_x %in% c(3, 6, 9, 12, 15) ~ 9,
+      TRUE ~ NA_real_ # Valeur par défaut si aucune condition n'est remplie
+    )
+  )
+
+chemin <- NULL
+for (i in chemin_blocs) {
+  for (j in 1:9) {
+    le_bon_PSU <- psu_bloc %>% 
+      filter(bloc_id == i & ordre_dans_le_bloc == j)
+    chemin <- c(chemin, le_bon_PSU$PSU)
+  }
+}
 
 chemin_mc_posa <- chemin
 chemin_mc_cposa <- chemin
@@ -229,60 +356,77 @@ resultats_simulation_posa <- data.frame(
 
 
 
-## Simulation Monte-Carlo PoSA (on retombe sur des résultats similaires pour un taux de cluster de 50%)
+## Simulation Monte-Carlo PoSA 
 
 ```{r}
+i = 0
+n_min = 29290  # Taille minimale en termes d'individus
+m_min = 21   # Nombre minimal de PSU sélectionnées
 
 for (iteration in 1:n_iterations) {
   
-  # Initialisation des données et des probabilités
-  psu_counts <- psu_counts %>% 
-    mutate(proba_initiale = total_individus / sum(total_individus) * 27)
-  
-  # Initialisation des probabilités mises à jour (au départ égales aux probabilités initiales)
-  psu_counts$proba_mise_a_jour <- psu_counts$proba_initiale
-  
-  # Initialisation de la liste des PSU sélectionnées
-  psu_selectionnees <- vector("list", length = psu_size * psu_size)
-  
-  # Sélection de la première PSU avec sa probabilité initiale
-  if (runif(n = 1, min = 0, max = 1) < psu_counts$proba_initiale[1]) {
-    psu_selectionnees[[1]] <- psu_counts[1, ]
-  }
-  
-  chemin_mc_posa_tempo <- chemin_mc_posa
-  
-  # Parcours des PSU pour sélection adaptative
-  for (i in 2:225) { 
-    PSU_actuelle <- chemin_mc_posa_tempo[i]
-    PSU_precedente <- chemin_mc_posa_tempo[i - 1]
+  repeat {
+    # Initialisation des données et des probabilités
+    psu_counts <- psu_counts %>% 
+      mutate(proba_initiale = total_individus / sum(total_individus) * 27)
     
-    # Mise à jour des probabilités des PSU voisines si la PSU précédente est malade
-    if (!(is.null(psu_selectionnees[[PSU_precedente]])) & (runif(n = 1, min = 0, max = 1) < psu_counts$proba_initiale[1])) {
-      psu_counts$proba_mise_a_jour[PSU_actuelle] <- 1
-      psu_selectionnees[[PSU_actuelle]] <- psu_counts[PSU_actuelle, ]
-    } else {
-      # Sélection avec la probabilité d'inclusion initiale ou mise à jour
-      if (runif(n = 1, min = 0, max = 1) < psu_counts$proba_mise_a_jour[PSU_actuelle]) {
+    # Initialisation des probabilités mises à jour (au départ égales aux probabilités initiales)
+    psu_counts$proba_mise_a_jour <- psu_counts$proba_initiale
+    
+    # Initialisation de la liste des PSU sélectionnées
+    psu_selectionnees <- vector("list", length = psu_size * psu_size)
+    
+    # Sélection de la première PSU avec sa probabilité initiale
+    if (runif(n = 1, min = 0, max = 1) < psu_counts$proba_initiale[1]) {
+      psu_selectionnees[[1]] <- psu_counts[1, ]
+    }
+    
+    chemin_mc_posa_tempo <- chemin_mc_posa
+    
+    # Vérifier si la somme des probabilités est inférieure à m_min
+    #if (sum(psu_counts$proba_initiale) < m_min) {
+      #facteur_ajustement <- m_min / sum(psu_counts$proba_initiale)
+      # Ajuster les probabilités pour que leur somme soit égale à m_min
+      #psu_counts$proba_initiale <- psu_counts$proba_initiale * facteur_ajustement
+    #}
+    
+    # Parcours des PSU pour sélection adaptative
+    for (h in 2:225) { 
+      
+      PSU_actuelle <- chemin_mc_posa_tempo[h]
+      PSU_precedente <- chemin_mc_posa_tempo[h - 1]
+      
+      # Mise à jour des probabilités des PSU voisines si la PSU précédente est malade
+      if (!(is.null(psu_selectionnees[[PSU_precedente]])) & psu_counts$PSU_malade[PSU_precedente]) {
+        psu_counts$proba_mise_a_jour[PSU_actuelle] <- 1
         psu_selectionnees[[PSU_actuelle]] <- psu_counts[PSU_actuelle, ]
+        
+      } else {
+        # Sélection avec la probabilité d'inclusion initiale ou mise à jour
+        if (runif(n = 1, min = 0, max = 1) < psu_counts$proba_mise_a_jour[PSU_actuelle]) {
+          psu_selectionnees[[PSU_actuelle]] <- psu_counts[PSU_actuelle, ]
+        }
       }
     }
+    
+    # Calcul des résultats pour cette itération
+    m_ech <- nrow(as.data.frame(do.call(rbind, psu_selectionnees))) 
+    taille_echantillon <- sum(sapply(psu_selectionnees, function(psu) if (!is.null(psu)) psu$total_individus else 0))
+    nombre_malades <- sum(sapply(psu_selectionnees, function(psu) if (!is.null(psu) && psu$PSU_malade) psu$malades else 0))
+    
+    # Vérification des conditions m_min 
+    if (taille_echantillon >= n_min) {
+      # Enregistrement des résultats si les deux conditions sont respectées
+      resultats_simulation_posa[iteration, "taille_echantillon"] <- taille_echantillon
+      resultats_simulation_posa[iteration, "nombre_malades"] <- nombre_malades
+      resultats_simulation_posa[iteration, "m_ech"] <- m_ech
+      break  # Sortir de la boucle repeat
+    }
   }
-  
-  # Calcul des résultats pour cette itération
-  m_ech <- nrow(as.data.frame(do.call(rbind, psu_selectionnees))) 
-  taille_echantillon <- sum(sapply(psu_selectionnees, function(psu) if (!is.null(psu)) psu$total_individus else 0))
-  nombre_malades <- sum(sapply(psu_selectionnees, function(psu) if (!is.null(psu) && psu$PSU_malade) psu$malades else 0))
-  
-  # Enregistrement des résultats
-  resultats_simulation_posa[iteration, "taille_echantillon"] <- taille_echantillon
-  resultats_simulation_posa[iteration, "nombre_malades"] <- nombre_malades
-  resultats_simulation_posa[iteration, "m_ech"] <- m_ech
 }
 
 # Résumé des résultats
 summary(resultats_simulation_posa)
-
 
 
 ```
@@ -292,7 +436,8 @@ summary(resultats_simulation_posa)
 
 ```{r}
 # A modifier en fonction du taux de clustering
-resultats_simulation_posa$taux_cluster <- 0.7
+resultats_simulation_posa$taux_cluster <- 0.3
+
 
 # A la première itération
 resultats_simulation_posa_final <- resultats_simulation_posa
@@ -304,14 +449,14 @@ resultats_simulation_posa_final <- rbind(resultats_simulation_posa_final,resulta
 ## Visualisation, très peu de différences sur les tailles d'échantillon, légère baisse du nombre de cas captés
 
 ```{r}
-ggplot(resultats_simulation_posa_final, aes(x = as.factor(taux_cluster), y = taille_echantillon)) +
+plot_taille_nwho <- ggplot(resultats_simulation_posa_final, aes(x = as.factor(taux_cluster), y = taille_echantillon)) +
   geom_boxplot(fill = "skyblue", color = "black") +
   labs(title = "Boxplot de tailles_echantillon par taux_cluster",
        x = "Taux Cluster",
        y = "Taille de l'échantillon") +
   theme_minimal()
 
-ggplot(resultats_simulation_posa_final, aes(x = as.factor(taux_cluster), y = nombre_malades)) +
+plot_malades_nwho <- ggplot(resultats_simulation_posa_final, aes(x = as.factor(taux_cluster), y = nombre_malades)) +
   geom_boxplot(fill = "salmon", color = "black") +
   labs(title = "Boxplot de nombre_malades par taux_cluster",
        x = "Taux Cluster",
@@ -320,9 +465,16 @@ ggplot(resultats_simulation_posa_final, aes(x = as.factor(taux_cluster), y = nom
 
 ```
 
+
+
+
+
+
+## Simulation de Monte-Carlo pour la méthode CPoSA (à optimiser, ~1h pour 2300 simulation)
+
 ```{r}
 set.seed(123) 
-n_iterations <- 100
+n_iterations <- 300
 
 # Création d'une matrice pour stocker les résultats
 resultats_simulation_cposa_final <- data.frame(
@@ -338,67 +490,76 @@ resultats_simulation_cposa <- data.frame(
 ```
 
 
-## Simulation de Monte-Carlo pour la méthode CPoSA (à optimiser, ~1h pour 2300 simulation)
-
 ```{r}
 
+m_min = 21  # Nombre minimal de PSU sélectionnées
+n_min = 0.7*29290 # Taille minimale en termes d'individus
+i = 0
+
 for (iteration in 1:n_iterations) {
-  # Initialisation des données et des probabilités
-  psu_counts <- psu_counts %>% 
-    mutate(proba_initiale = total_individus / sum(total_individus) * 27)
-  
-  # Initialisation des probabilités mises à jour (au départ égales aux probabilités initiales)
-  psu_counts$proba_mise_a_jour <- psu_counts$proba_initiale
-  
-  # Initialisation de la liste des PSU sélectionnées
-  psu_selectionnees <- vector("list", length = psu_size * psu_size)
-  
-  # Sélection de la première PSU avec sa probabilité initiale
-  if (runif(n = 1, min = 0, max = 1) < psu_counts$proba_initiale[1]) {
-    psu_selectionnees[[1]] <- psu_counts[1, ]
-  }
-  
-  chemin_mc_cposa_tempo <- chemin_mc_cposa
-  
-  # Parcours des PSU pour sélection adaptative
-  for (i in 2:224) { 
-    PSU_actuelle <- chemin_mc_posa_tempo[i]
-    PSU_precedente <- chemin_mc_posa_tempo[i - 1]
+  repeat {
+    # Initialisation des données et des probabilités
+    psu_counts <- psu_counts %>% 
+      mutate(proba_initiale = total_individus / sum(total_individus) * 21)
     
-    # Mise à jour des probabilités des PSU voisines si la PSU précédente est malade
-    if (!(is.null(psu_selectionnees[[PSU_precedente]])) & (runif(n = 1, min = 0, max = 1) < psu_counts$proba_initiale[1])) {
-      psu_counts$proba_mise_a_jour[PSU_actuelle] <- 1
-      psu_selectionnees[[PSU_actuelle]] <- psu_counts[PSU_actuelle, ]
-    } else { 
-          # Met à jour les probabilités des PSUs allant de i+2 à 225 avant de continuer
-        for (j in (i+1):225) {
+    # Initialisation des probabilités mises à jour (au départ égales aux probabilités initiales)
+    psu_counts$proba_mise_a_jour <- psu_counts$proba_initiale
+    
+    # Initialisation de la liste des PSU sélectionnées
+    psu_selectionnees <- vector("list", length = psu_size * psu_size)
+    
+    # Sélection de la première PSU avec sa probabilité initiale
+    if (runif(n = 1, min = 0, max = 1) < psu_counts$proba_initiale[1]) {
+      psu_selectionnees[[1]] <- psu_counts[1, ]
+    }
+    
+    chemin_mc_cposa_tempo <- chemin_mc_cposa
+    total_individus_selectionnes <- 0  # Compteur pour le total des individus sélectionnés
+    
+    # Parcours des PSU pour sélection adaptative
+    for (h in 2:224) { 
+      
+      PSU_actuelle <- chemin_mc_cposa_tempo[h]
+      PSU_precedente <- chemin_mc_cposa_tempo[h - 1]
+      
+      # Mise à jour des probabilités des PSU voisines si la PSU précédente est malade
+      if (!(is.null(psu_selectionnees[[PSU_precedente]])) & psu_counts$PSU_malade[PSU_precedente]) {
+        psu_counts$proba_mise_a_jour[PSU_actuelle] <- 1
+        psu_selectionnees[[PSU_actuelle]] <- psu_counts[PSU_actuelle, ]
+        
+      } else { 
+        # Met à jour les probabilités des PSUs allant de h+1 à 225 avant de continuer
+        for (j in (h+1):225) {
           # Mise à jour de la probabilité d'inclusion selon la formule (49)
           psu_counts$proba_mise_a_jour[j] <- psu_counts$proba_mise_a_jour[j] + 
-                                           (psu_counts$proba_mise_a_jour[j] / (225 - i)) 
-      
+                                             (psu_counts$proba_initiale[j] / (225 - h)) 
         }
-    
-      # Ensuite, on sélectionne la PSU actuelle avec sa probabilité initiale
-      if (runif(n = 1, min = 0, max = 1) < psu_counts$proba_initiale[PSU_actuelle]) {
-        psu_selectionnees[[PSU_actuelle]] <- psu_counts[PSU_actuelle, ]
+        
+        # Ensuite, on sélectionne la PSU actuelle avec sa probabilité actualisée
+        if (runif(n = 1, min = 0, max = 1) < psu_counts$proba_mise_a_jour[PSU_actuelle]) {
+          psu_selectionnees[[PSU_actuelle]] <- psu_counts[PSU_actuelle, ]
+        }
       }
     }
+    
+    # Calcul des résultats pour cette itération
+    m_ech <- nrow(as.data.frame(do.call(rbind, psu_selectionnees))) 
+    taille_echantillon <- sum(sapply(psu_selectionnees, function(psu) if (!is.null(psu)) psu$total_individus else 0))
+    nombre_malades <- sum(sapply(psu_selectionnees, function(psu) if (!is.null(psu) && psu$PSU_malade) psu$malades else 0))
+    
+    # Vérification des conditions m_min et n_min
+    if (taille_echantillon >= n_min) {
+      # Enregistrement des résultats si les deux conditions sont respectées
+      resultats_simulation_cposa[iteration, "taille_echantillon"] <- taille_echantillon
+      resultats_simulation_cposa[iteration, "nombre_malades"] <- nombre_malades
+      resultats_simulation_cposa[iteration, "m_ech"] <- m_ech
+      break  # Sortir de la boucle repeat
+    }
   }
-  
-  # Calcul des résultats pour cette itération
-  m_ech <- nrow(as.data.frame(do.call(rbind, psu_selectionnees))) 
-  taille_echantillon <- sum(sapply(psu_selectionnees, function(psu) if (!is.null(psu)) psu$total_individus else 0))
-  nombre_malades <- sum(sapply(psu_selectionnees, function(psu) if (!is.null(psu) && psu$PSU_malade) psu$malades else 0))
-  
-  # Enregistrement des résultats
-  resultats_simulation_cposa[iteration, "taille_echantillon"] <- taille_echantillon
-  resultats_simulation_cposa[iteration, "nombre_malades"] <- nombre_malades
-  resultats_simulation_cposa[iteration, "m_ech"] <- m_ech
 }
 
 # Résumé des résultats
 summary(resultats_simulation_cposa)
-
 
 ```
 
@@ -406,7 +567,7 @@ summary(resultats_simulation_cposa)
 
 ```{r}
 # A modifier en fonction du taux de clustering
-resultats_simulation_cposa$taux_cluster <- 0.7
+resultats_simulation_cposa$taux_cluster <- 0.01
 
 # A la première itération
 resultats_simulation_cposa_final <- resultats_simulation_cposa
@@ -431,6 +592,7 @@ ggplot(resultats_simulation_cposa_final, aes(x = as.factor(taux_cluster), y = no
        x = "Taux Cluster",
        y = "Nombre de malades") +
   theme_minimal()
+
 
 ```
 
@@ -468,7 +630,7 @@ psu_selectionnees
 ```
 
 
-## Plot global 
+## Plot global PoSA vs CPoSA
 
 ```{r}
 library(ggplot2)
@@ -484,27 +646,201 @@ resultats_combines <- rbind(resultats_simulation_posa_final, resultats_simulatio
 resultats_combines$groupe <- factor(resultats_combines$groupe, levels = c("PoSA", "CPoSA"))
 
 # Graphique pour la taille de l'échantillon
-plot_taille <- ggplot(resultats_combines, aes(x = as.factor(taux_cluster), y = taille_echantillon, fill = groupe)) +
+plot_taille_nwho <- ggplot(resultats_combines, aes(x = as.factor(taux_cluster), y = taille_echantillon, fill = groupe)) +
   geom_boxplot(position = position_dodge(0.8), color = "black") +
-  labs(title = "Boxplot de la taille de l'échantillon par taux_cluster",
+  labs(title = "Boxplot de la taille de l'échantillon par taux_cluster : n_min = 0.7 n_who",
        x = "Taux Cluster",
        y = "Taille de l'échantillon") +
   scale_fill_manual(values = c("PoSA" = "skyblue", "CPoSA" = "steelblue")) +
   theme_minimal()
 
 # Graphique pour le nombre de malades
-plot_malades <- ggplot(resultats_combines, aes(x = as.factor(taux_cluster), y = nombre_malades, fill = groupe)) +
+plot_malades_nwho <- ggplot(resultats_combines, aes(x = as.factor(taux_cluster), y = nombre_malades, fill = groupe)) +
   geom_boxplot(position = position_dodge(0.8), color = "black") +
-  labs(title = "Boxplot du nombre de malades par taux_cluster",
+  labs(title = "Boxplot du nombre de malades par taux_cluster : n_min = 0.7 n_who",
        x = "Taux Cluster",
        y = "Nombre de malades") +
   scale_fill_manual(values = c("PoSA" = "salmon", "CPoSA" = "darkred")) +
   theme_minimal()
 
 # Affichage des deux graphiques
-plot_taille
-plot_malades
+plot_taille_08_nwho
+plot_malades_08_nwho
+plot_taille_07_nwho
+plot_malades_07_nwho
+plot_taille_nwho
+plot_malades_nwho
 
+```
+
+```{r}
+library(patchwork)
+
+# Combinaison des graphiques 
+combined_plot <- 
+  (plot_taille_08_nwho + plot_taille_07_nwho + plot_taille_nwho)   # Ligne des malades
+
+# Affichage du graphique combiné
+plot(combined_plot)
+
+# Sauvegarde du graphique combiné
+ggsave("combined_plot.png", combined_plot, width = 12, height = 8)
+
+```
+
+
+## Comparaison avec un sondage proprotionnel à la taille
+
+```{r}
+
+n_min <- 27
+
+# Initialisation des données et des probabilités
+psu_counts <- psu_counts %>% 
+  mutate(proba_initiale = total_individus / sum(total_individus) * 27)
+
+# Vérifier si la somme des probabilités initiales est supèrieur à n_min
+if (sum(psu_counts$proba_initiale) < n_min) {
+  facteur_ajustement <- n_min / sum(psu_counts$proba_initiale)
+  # Ajuster les probabilités pour que leur somme soit égale à n_min
+  psu_counts$proba_initiale <- psu_counts$proba_initiale * facteur_ajustement
+}
+psu_counts$weights <- 1 / psu_counts$proba_initiale
+
+
+
+# Fonction pour le tirage de Poisson
+UPpoisson <- function(probs) {
+  # Tirage binaire selon les probabilités initiales
+  rbinom(length(probs), size = 1, prob = probs)
+}
+
+# Simulation de Monte-Carlo
+set.seed(123)  # Pour reproductibilité
+n_simulations <- 5000  # Nombre de simulations
+
+# Stocker les résultats des simulations
+results <- replicate(n_simulations, {
+  # Tirage de Poisson
+  ind_tires <- UPpoisson(psu_counts$proba_initiale)
+  
+  # Filtrer les PSU sélectionnés
+  psu_counts_simple <- psu_counts[ind_tires == 1, ]
+  
+  # Total d'individus
+  total_individus <- sum(psu_counts_simple$total_individus)
+  
+  # Filtrer pour PSU_malade == TRUE
+  psu_counts_simple_filtrer <- psu_counts_simple %>%
+    filter(PSU_malade == TRUE)
+  
+  # Total de malades
+  total_malades <- sum(psu_counts_simple_filtrer$malades)
+  
+  # Retourner les résultats
+  c(total_individus, total_malades)
+})
+
+# Transposer et convertir les résultats en data.frame
+results_df <- as.data.frame(t(results))
+colnames(results_df) <- c("Total_Individus", "Total_Malades")
+
+# Résumé des résultats
+summary_results <- results_df %>%
+  summarise(
+    taille_echantillon = mean(Total_Individus),
+    nombres_malades = mean(Total_Malades),
+  )
+
+# Afficher les résultats résumés
+summary_results
+
+```
+
+```{r}
+# A modifier en fonction du taux de clustering
+results_df$taux_cluster <- 0.7
+
+# A la première itération
+resultats_simulation_prop_final <- results_df
+
+# Pour le reste
+resultats_simulation_prop_final <- rbind(resultats_simulation_prop_final,results_df)
+
+
+```
+
+```{r}
+# Graphique pour Total_Individus
+plot_total_individus_nwho <- ggplot(resultats_simulation_prop_final, aes(x = as.factor(taux_cluster), y = Total_Individus)) +
+  geom_boxplot(fill = "skyblue", color = "black") +
+  labs(
+    title = "Boxplot du total d'individus par taux_cluster",
+    x = "Taux Cluster",
+    y = "Total d'individus"
+  ) +
+  theme_minimal()
+
+# Graphique pour Total_Malades
+plot_total_malades_nwho <- ggplot(resultats_simulation_prop_final, aes(x = as.factor(taux_cluster), y = Total_Malades)) +
+  geom_boxplot(fill = "salmon", color = "black") +
+  labs(
+    title = "Boxplot du total de malades par taux_cluster",
+    x = "Taux Cluster",
+    y = "Total de malades"
+  ) +
+  theme_minimal()
+
+# Combinaison des graphiques 
+combined_plot <- 
+  (plot_total_individus_07_nwho + plot_total_individus_08_nwho + plot_total_individus_nwho) /  # Ligne des tailles
+  (plot_total_malades_07_nwho + plot_total_malades_08_nwho + plot_total_malades_nwho)  # Ligne des malades
+
+# Affichage du graphique combiné
+plot(combined_plot)
+
+# Affichage des graphiques
+print(plot_total_individus)
+print(plot_total_malades)
+
+
+```
+
+
+## Plot global PoSA vs CPoSA vs prop
+
+```{r}
+library(ggplot2)
+
+colnames(resultats_simulation_prop_final)[1] <- "taille_echantillon"
+colnames(resultats_simulation_prop_final)[2] <- "nombre_malades"
+
+# Ajouter une colonne pour identifier les groupes 
+resultats_simulation_prop_final$groupe <- "Prop"
+
+# Combiner les deux datasets
+resultats_combines_total <- rbind(resultats_combines, resultats_simulation_prop_final)
+
+# Fixer l'ordre des groupes (PoSA avant CPoSA)
+resultats_combines_total$groupe <- factor(resultats_combines$groupe, levels = c("PoSA", "CPoSA","Prop"))
+
+# Graphique pour la taille de l'échantillon
+plot_taille_nwho <- ggplot(resultats_combines_total, aes(x = as.factor(taux_cluster), y = taille_echantillon, fill = groupe)) +
+  geom_boxplot(position = position_dodge(0.8), color = "black") +
+  labs(title = "Boxplot de la taille de l'échantillon par taux_cluster : n_min = 0.7 n_who",
+       x = "Taux Cluster",
+       y = "Taille de l'échantillon") +
+  scale_fill_manual(values = c("PoSA" = "skyblue", "CPoSA" = "steelblue")) +
+  theme_minimal()
+
+# Graphique pour le nombre de malades
+plot_malades_nwho <- ggplot(resultats_combines, aes(x = as.factor(taux_cluster), y = nombre_malades, fill = groupe)) +
+  geom_boxplot(position = position_dodge(0.8), color = "black") +
+  labs(title = "Boxplot du nombre de malades par taux_cluster : n_min = 0.7 n_who",
+       x = "Taux Cluster",
+       y = "Nombre de malades") +
+  scale_fill_manual(values = c("PoSA" = "salmon", "CPoSA" = "darkred")) +
+  theme_minimal()
 
 ```
  
