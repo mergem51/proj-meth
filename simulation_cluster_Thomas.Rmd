@@ -49,11 +49,11 @@ centres_malades <- data.frame(
 ```{r}
 # Étape 3 : Génération des malades
 prop_malades <- 0.005  # Proportion totale de malades dans la population
-prop_clusters <- 0.01 # Proportion de malades dans les clusters
+prop_clusters <- 0.5 # Proportion de malades dans les clusters
 n_malades <- round(n_total * prop_malades)  # Nombre total de malades
 n_cluster_malades <- round(n_malades * prop_clusters)  # Nombre de malades dans les clusters
 n_outside_malades <- n_malades - n_cluster_malades  # Nombre de malades hors clusters
-mean_radius <- 20  # Rayon moyen autour des centres
+mean_radius <- 50  # Rayon moyen autour des centres
 
 # Générer les malades dans les clusters
 set.seed(456)
@@ -475,9 +475,13 @@ for (iteration in 1:n_iterations) {
     } else { 
       # Met à jour les probabilités des PSUs allant de h+1 à 225 avant de continuer
       for (j in (h+1):225) {
-        # Mise à jour de la probabilité d'inclusion selon la formule (49)
-        psu_counts$proba_mise_a_jour[j] <- psu_counts$proba_mise_a_jour[j] + 
-                                           (psu_counts$proba_initiale[j] / (225 - h)) 
+        if (runif(n = 1, min = 0, max = 1) < psu_counts$proba_mise_a_jour[PSU_actuelle] & psu_counts$PSU_malade[PSU_actuelle]) {
+          psu_counts$proba_mise_a_jour[j] <- psu_counts$proba_mise_a_jour[j] + 
+                                             ((1 - psu_counts$proba_mise_a_jour[h]) / (225 - h)) 
+        } else {
+          psu_counts$proba_mise_a_jour[j] <- psu_counts$proba_mise_a_jour[j] + 
+                                             (psu_counts$proba_mise_a_jour[h] / (225 - h)) 
+        }
       }
       
       # Ensuite, on sélectionne la PSU actuelle avec sa probabilité actualisée
@@ -499,8 +503,9 @@ for (iteration in 1:n_iterations) {
 }
 
 
+
 # Résumé des résultats
-summary(resultats_simulation_posa)
+summary(resultats_simulation_cposa)
 
 ```
 
@@ -784,4 +789,3 @@ plot_malades_nwho <- ggplot(resultats_combines, aes(x = as.factor(taux_cluster),
   theme_minimal()
 
 ```
- 
