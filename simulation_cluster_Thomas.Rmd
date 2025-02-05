@@ -14,6 +14,8 @@ library(MASS)
 library(clusterGeneration)
 library(mvtnorm)
 library(survey)
+
+
 ```
 
 
@@ -49,7 +51,7 @@ centres_malades <- data.frame(
 ```{r}
 # Étape 3 : Génération des malades
 prop_malades <- 0.005  # Proportion totale de malades dans la population
-prop_clusters <- 0.3 # Proportion de malades dans les clusters
+prop_clusters <- 0.01 # Proportion de malades dans les clusters
 n_malades <- round(n_total * prop_malades)  # Nombre total de malades
 n_cluster_malades <- round(n_malades * prop_clusters)  # Nombre de malades dans les clusters
 n_outside_malades <- n_malades - n_cluster_malades  # Nombre de malades hors clusters
@@ -419,12 +421,15 @@ for (iteration in 1:n_iterations) {
   # Normalisation de l'estimateur Pseudo-HT
   Y_PHT <- HT_pseudo / N_total
   V_PHT <- V_HT_pseudo / N_total**2
-  
+
   # Calcul HT classique
-  
   Y_HT <- sum(psu_counts$malades / psu_counts$proba_initiale) * 1 / 250000
   V_HT <- sum((psu_counts$malades^2 / psu_counts$proba_initiale^2) / psu_counts$proba_initiale) - (sum(psu_counts$malades / psu_counts$proba_initiale))^2
-
+  CV_HT <- sqrt(V_HT) / Y_HT # coefficient de variation
+  
+  # Comparaison PHT et HT
+  rapport_variances <- V_PHT / V_HT
+  biais_relatif <- (Y_PHT - Y_HT) / Y_HT
   
   # Calcul des résultats pour cette itération
   m_ech <- nrow(as.data.frame(do.call(rbind, psu_selectionnees))) 
@@ -435,10 +440,15 @@ for (iteration in 1:n_iterations) {
   resultats_simulation_posa[iteration, "taille_echantillon"] <- taille_echantillon
   resultats_simulation_posa[iteration, "nombre_malades"] <- nombre_malades
   resultats_simulation_posa[iteration, "m_ech"] <- m_ech
-    resultats_simulation_posa[iteration, "Y_HT"] <- Y_HT
+  resultats_simulation_posa[iteration, "Y_HT"] <- Y_HT
   resultats_simulation_posa[iteration, "Y_PHT"] <- Y_PHT
-    resultats_simulation_posa[iteration, "V_HT"] <- V_HT
+  resultats_simulation_posa[iteration, "V_HT"] <- V_HT
   resultats_simulation_posa[iteration, "V_PHT"] <- V_PHT
+  resultats_simulation_posa[iteration, "CV_PHT"] <- CV_PHT
+  resultats_simulation_posa[iteration, "CV_HT"] <- CV_HT
+  resultats_simulation_posa[iteration, "rapport_variances"] <- rapport_variances
+  resultats_simulation_posa[iteration, "biais_relatif"] <- biais_relatif
+
 }
 
 
@@ -544,19 +554,21 @@ for (iteration in 1:n_iterations) {
       # Mise à jour des probabilités uniquement si h < 225
       if (h < 225) {
         for (j in (h+1):225) {
-        if (runif(n = 1, min = 0, max = 1) < psu_counts$proba_mise_a_jour[PSU_actuelle] & psu_counts$PSU_malade[PSU_actuelle]) {
-          psu_counts$proba_mise_a_jour[j] <- psu_counts$proba_mise_a_jour[j] - 
-                                             ((1 - psu_counts$proba_mise_a_jour[h]) / (225 - h)) 
-        } else {
-          psu_counts$proba_mise_a_jour[j] <- psu_counts$proba_mise_a_jour[j] + 
-                                             (psu_counts$proba_mise_a_jour[h] / (225 - h)) 
-        }
+          if (runif(n = 1, min = 0, max = 1) < psu_counts$proba_mise_a_jour[PSU_actuelle] & psu_counts$PSU_malade[PSU_actuelle]) {
+            psu_counts$proba_mise_a_jour[j] <- psu_counts$proba_mise_a_jour[j] - 
+                                               ((1 - psu_counts$proba_mise_a_jour[h]) / (225 - h)) 
+          } else {
+            psu_counts$proba_mise_a_jour[j] <- psu_counts$proba_mise_a_jour[j] + 
+                                               (psu_counts$proba_mise_a_jour[h] / (225 - h)) 
+          }
+          
+          # Vérification que la probabilité mise à jour ne dépasse pas 1
+          psu_counts$proba_mise_a_jour[j] <- ifelse(psu_counts$proba_mise_a_jour[j] > 1, 1, psu_counts$proba_mise_a_jour[j])
         }
         
         # Sélection de la dernière PSU
         if (runif(n = 1, min = 0, max = 1) < psu_counts$proba_mise_a_jour[PSU_actuelle]) {
           psu_selectionnees[[PSU_actuelle]] <- psu_counts[PSU_actuelle, ]
-          
         }
       }
       
@@ -568,6 +580,9 @@ for (iteration in 1:n_iterations) {
           psu_counts$proba_mise_a_jour[PSU_actuelle] <- psu_counts$proba_mise_a_jour[PSU_actuelle] - 
                                                          ((1 - psu_counts$proba_mise_a_jour[h]) / (225 - h)) 
         }
+        
+        # Vérification que la probabilité mise à jour ne dépasse pas 1
+        psu_counts$proba_mise_a_jour[PSU_actuelle] <- ifelse(psu_counts$proba_mise_a_jour[PSU_actuelle] > 1, 1, psu_counts$proba_mise_a_jour[PSU_actuelle])
         
         # Sélection de la dernière PSU
         if (runif(n = 1, min = 0, max = 1) < psu_counts$proba_mise_a_jour[PSU_actuelle]) {
@@ -587,6 +602,7 @@ for (iteration in 1:n_iterations) {
   resultats_simulation_cposa[iteration, "nombre_malades"] <- nombre_malades
   resultats_simulation_cposa[iteration, "m_ech"] <- m_ech
 }
+
 
 
 
