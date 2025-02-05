@@ -49,7 +49,7 @@ centres_malades <- data.frame(
 ```{r}
 # Étape 3 : Génération des malades
 prop_malades <- 0.005  # Proportion totale de malades dans la population
-prop_clusters <- 0.7 # Proportion de malades dans les clusters
+prop_clusters <- 0.3 # Proportion de malades dans les clusters
 n_malades <- round(n_total * prop_malades)  # Nombre total de malades
 n_cluster_malades <- round(n_malades * prop_clusters)  # Nombre de malades dans les clusters
 n_outside_malades <- n_malades - n_cluster_malades  # Nombre de malades hors clusters
@@ -373,6 +373,11 @@ for (iteration in 1:n_iterations) {
   # Initialisation de la liste des PSU sélectionnées
   psu_selectionnees <- vector("list", length = psu_size * psu_size)
   
+  # Initialisation de l'estimateur Pseudo-HT
+  HT_pseudo <- 0 
+  V_HT_pseudo <- 0
+  N_total <- sum(psu_counts$total_individus)  # Taille totale de la population
+  
   # Sélection de la première PSU avec sa probabilité initiale
   if (runif(n = 1, min = 0, max = 1) < psu_counts$proba_initiale[1]) {
     psu_selectionnees[[1]] <- psu_counts[1, ]
@@ -380,9 +385,8 @@ for (iteration in 1:n_iterations) {
   
   chemin_mc_posa_tempo <- chemin_mc_posa
   
-  # Parcours des PSU pour sélection adaptative
+  # Parcours des PSU pour sélection adaptative et mise à jour de HT_pseudo
   for (h in 2:225) { 
-    
     PSU_actuelle <- chemin_mc_posa_tempo[h]
     PSU_precedente <- chemin_mc_posa_tempo[h - 1]
     
@@ -390,14 +394,37 @@ for (iteration in 1:n_iterations) {
     if (!(is.null(psu_selectionnees[[PSU_precedente]])) & psu_counts$PSU_malade[PSU_precedente]) {
       psu_counts$proba_mise_a_jour[PSU_actuelle] <- 1
       psu_selectionnees[[PSU_actuelle]] <- psu_counts[PSU_actuelle, ]
-      
     } else {
       # Sélection avec la probabilité d'inclusion initiale ou mise à jour
       if (runif(n = 1, min = 0, max = 1) < psu_counts$proba_mise_a_jour[PSU_actuelle]) {
         psu_selectionnees[[PSU_actuelle]] <- psu_counts[PSU_actuelle, ]
       }
     }
+    
+    # Définition de S_h : indicatrice de sélection
+    Sh <- ifelse(!is.null(psu_selectionnees[[PSU_actuelle]]), 1, 0)
+    
+    # Mise à jour séquentielle de l'estimateur Pseudo-HT uniquement si Sh = 1
+    if (Sh == 1) {
+      Yh <- psu_counts[PSU_actuelle, "malades"] 
+      pi_h_1 <- psu_counts[PSU_actuelle, "proba_mise_a_jour"]
+      
+      if (pi_h_1 > 0) {
+        HT_pseudo <- HT_pseudo + (Yh * Sh) / pi_h_1
+        V_HT_pseudo <- V_HT_pseudo + (1 / pi_h_1) * (1 / pi_h_1 - 1) * Yh**2
+      }
+    }
   }
+  
+  # Normalisation de l'estimateur Pseudo-HT
+  Y_PHT <- HT_pseudo / N_total
+  V_PHT <- V_HT_pseudo / N_total**2
+  
+  # Calcul HT classique
+  
+  Y_HT <- sum(psu_counts$malades / psu_counts$proba_initiale) * 1 / 250000
+  V_HT <- sum((psu_counts$malades^2 / psu_counts$proba_initiale^2) / psu_counts$proba_initiale) - (sum(psu_counts$malades / psu_counts$proba_initiale))^2
+
   
   # Calcul des résultats pour cette itération
   m_ech <- nrow(as.data.frame(do.call(rbind, psu_selectionnees))) 
@@ -408,7 +435,12 @@ for (iteration in 1:n_iterations) {
   resultats_simulation_posa[iteration, "taille_echantillon"] <- taille_echantillon
   resultats_simulation_posa[iteration, "nombre_malades"] <- nombre_malades
   resultats_simulation_posa[iteration, "m_ech"] <- m_ech
+    resultats_simulation_posa[iteration, "Y_HT"] <- Y_HT
+  resultats_simulation_posa[iteration, "Y_PHT"] <- Y_PHT
+    resultats_simulation_posa[iteration, "V_HT"] <- V_HT
+  resultats_simulation_posa[iteration, "V_PHT"] <- V_PHT
 }
+
 
 # Résumé des résultats
 summary(resultats_simulation_posa)
@@ -499,8 +531,7 @@ for (iteration in 1:n_iterations) {
   total_individus_selectionnes <- 0  # Compteur pour le total des individus sélectionnés
   
   # Parcours des PSU pour sélection adaptative
-  for (h in 2:224) { 
-    
+  for (h in 2:225) { 
     PSU_actuelle <- chemin_mc_cposa_tempo[h]
     PSU_precedente <- chemin_mc_cposa_tempo[h - 1]
     
@@ -510,20 +541,38 @@ for (iteration in 1:n_iterations) {
       psu_selectionnees[[PSU_actuelle]] <- psu_counts[PSU_actuelle, ]
       
     } else { 
-      # Met à jour les probabilités des PSUs allant de h+1 à 225 avant de continuer
-      for (j in (h+1):225) {
+      # Mise à jour des probabilités uniquement si h < 225
+      if (h < 225) {
+        for (j in (h+1):225) {
         if (runif(n = 1, min = 0, max = 1) < psu_counts$proba_mise_a_jour[PSU_actuelle] & psu_counts$PSU_malade[PSU_actuelle]) {
-          psu_counts$proba_mise_a_jour[j] <- psu_counts$proba_mise_a_jour[j] + 
+          psu_counts$proba_mise_a_jour[j] <- psu_counts$proba_mise_a_jour[j] - 
                                              ((1 - psu_counts$proba_mise_a_jour[h]) / (225 - h)) 
         } else {
           psu_counts$proba_mise_a_jour[j] <- psu_counts$proba_mise_a_jour[j] + 
                                              (psu_counts$proba_mise_a_jour[h] / (225 - h)) 
         }
+        }
+        
+        # Sélection de la dernière PSU
+        if (runif(n = 1, min = 0, max = 1) < psu_counts$proba_mise_a_jour[PSU_actuelle]) {
+          psu_selectionnees[[PSU_actuelle]] <- psu_counts[PSU_actuelle, ]
+          
+        }
       }
       
-      # Ensuite, on sélectionne la PSU actuelle avec sa probabilité actualisée
-      if (runif(n = 1, min = 0, max = 1) < psu_counts$proba_mise_a_jour[PSU_actuelle]) {
-        psu_selectionnees[[PSU_actuelle]] <- psu_counts[PSU_actuelle, ]
+      # Cas spécifique pour h = 225
+      if (h == 225) {
+        if (psu_counts$PSU_malade[PSU_actuelle]) {
+          psu_counts$proba_mise_a_jour[PSU_actuelle] <- 1  # Cas où S_h * D_h = 1
+        } else {
+          psu_counts$proba_mise_a_jour[PSU_actuelle] <- psu_counts$proba_mise_a_jour[PSU_actuelle] - 
+                                                         ((1 - psu_counts$proba_mise_a_jour[h]) / (225 - h)) 
+        }
+        
+        # Sélection de la dernière PSU
+        if (runif(n = 1, min = 0, max = 1) < psu_counts$proba_mise_a_jour[PSU_actuelle]) {
+          psu_selectionnees[[PSU_actuelle]] <- psu_counts[PSU_actuelle, ]
+        }
       }
     }
   }
