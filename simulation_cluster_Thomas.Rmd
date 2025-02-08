@@ -129,6 +129,7 @@ malades <- rbind(
 
 # Ajouter les malades à la population globale
 population$malade <- 0
+test <- population
 population[population$id %in% malades$id, c("x", "y", "malade")] <- malades[, c("x", "y", "malade")]
 
 # Étape 4 : Visualisation
@@ -518,8 +519,8 @@ resultats_simulation_cposa <- data.frame(
 
 ```{r}
 
-m_min = 21  # Nombre minimal de PSU sélectionnées
-i = 0
+m_min = 19  # Nombre minimal de PSU sélectionnées
+zz = 0
 
 for (iteration in 1:n_iterations) {
   # Initialisation des données et des probabilités
@@ -546,50 +547,54 @@ for (iteration in 1:n_iterations) {
     PSU_precedente <- chemin_mc_cposa_tempo[h - 1]
     
     # Mise à jour des probabilités des PSU voisines si la PSU précédente est malade
-    if (!(is.null(psu_selectionnees[[PSU_precedente]])) & psu_counts$PSU_malade[PSU_precedente]) {
+    if (!(is.null(psu_selectionnees[[PSU_precedente]])) & psu_counts$PSU_malade[PSU_precedente] & h < 225) {
       psu_counts$proba_mise_a_jour[PSU_actuelle] <- 1
       psu_selectionnees[[PSU_actuelle]] <- psu_counts[PSU_actuelle, ]
-      
-    } else { 
+    
       # Mise à jour des probabilités uniquement si h < 225
       if (h < 225) {
         for (j in (h+1):225) {
-          if (runif(n = 1, min = 0, max = 1) < psu_counts$proba_mise_a_jour[PSU_actuelle] & psu_counts$PSU_malade[PSU_actuelle]) {
             psu_counts$proba_mise_a_jour[j] <- psu_counts$proba_mise_a_jour[j] - 
                                                ((1 - psu_counts$proba_mise_a_jour[h]) / (225 - h)) 
-          } else {
-            psu_counts$proba_mise_a_jour[j] <- psu_counts$proba_mise_a_jour[j] + 
-                                               (psu_counts$proba_mise_a_jour[h] / (225 - h)) 
-          }
-          
+            
           # Vérification que la probabilité mise à jour ne dépasse pas 1
           psu_counts$proba_mise_a_jour[j] <- ifelse(psu_counts$proba_mise_a_jour[j] > 1, 1, psu_counts$proba_mise_a_jour[j])
+          }
         }
         
         # Sélection de la dernière PSU
         if (runif(n = 1, min = 0, max = 1) < psu_counts$proba_mise_a_jour[PSU_actuelle]) {
           psu_selectionnees[[PSU_actuelle]] <- psu_counts[PSU_actuelle, ]
         }
-      }
+    } else {
+        # Mise à jour des probabilités uniquement si h < 225
+        if (h < 225) {
+          for (j in (h+1):225) {
+            psu_counts$proba_mise_a_jour[j] <- psu_counts$proba_mise_a_jour[j] + 
+                                               (psu_counts$proba_mise_a_jour[h] / (225 - h)) 
+          
+            # Vérification que la probabilité mise à jour ne dépasse pas 1
+            psu_counts$proba_mise_a_jour[j] <- ifelse(psu_counts$proba_mise_a_jour[j] > 1, 1, psu_counts$proba_mise_a_jour[j])
+          }
+        } 
+        # Sélection de la dernière PSU
+        if (runif(n = 1, min = 0, max = 1) < psu_counts$proba_mise_a_jour[PSU_actuelle]) {
+          psu_selectionnees[[PSU_actuelle]] <- psu_counts[PSU_actuelle, ]
+        }
+    }
       
       # Cas spécifique pour h = 225
       if (h == 225) {
-        if (psu_counts$PSU_malade[PSU_actuelle]) {
-          psu_counts$proba_mise_a_jour[PSU_actuelle] <- 1  # Cas où S_h * D_h = 1
-        } else {
-          psu_counts$proba_mise_a_jour[PSU_actuelle] <- psu_counts$proba_mise_a_jour[PSU_actuelle] - 
-                                                         ((1 - psu_counts$proba_mise_a_jour[h]) / (225 - h)) 
-        }
-        
-        # Vérification que la probabilité mise à jour ne dépasse pas 1
-        psu_counts$proba_mise_a_jour[PSU_actuelle] <- ifelse(psu_counts$proba_mise_a_jour[PSU_actuelle] > 1, 1, psu_counts$proba_mise_a_jour[PSU_actuelle])
-        
         # Sélection de la dernière PSU
+        if (!(is.null(psu_selectionnees[[PSU_precedente]])) & psu_counts$PSU_malade[PSU_precedente]) {
+          psu_counts$proba_mise_a_jour[h] <- 1
+          psu_selectionnees[[PSU_actuelle]] <- psu_counts[PSU_actuelle, ]
+        } else {
         if (runif(n = 1, min = 0, max = 1) < psu_counts$proba_mise_a_jour[PSU_actuelle]) {
           psu_selectionnees[[PSU_actuelle]] <- psu_counts[PSU_actuelle, ]
         }
       }
-    }
+      }
   }
   
   # Calcul des résultats pour cette itération
@@ -910,3 +915,4 @@ plot_malades_nwho <- ggplot(resultats_combines, aes(x = as.factor(taux_cluster),
   theme_minimal()
 
 ```
+
