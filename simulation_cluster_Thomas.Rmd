@@ -9,10 +9,13 @@ rm(list = ls())
 
 library(dplyr)
 library(ggplot2)
+
 library(sampling)
 library(MASS)
+
 library(clusterGeneration)
 library(mvtnorm)
+
 library(survey)
 
 
@@ -51,7 +54,7 @@ centres_malades <- data.frame(
 ```{r}
 # Étape 3 : Génération des malades
 prop_malades <- 0.005  # Proportion totale de malades dans la population
-prop_clusters <- 0.01 # Proportion de malades dans les clusters
+prop_clusters <- 0.7 # Proportion de malades dans les clusters
 n_malades <- round(n_total * prop_malades)  # Nombre total de malades
 n_cluster_malades <- round(n_malades * prop_clusters)  # Nombre de malades dans les clusters
 n_outside_malades <- n_malades - n_cluster_malades  # Nombre de malades hors clusters
@@ -377,8 +380,8 @@ for (iteration in 1:n_iterations) {
   psu_selectionnees <- vector("list", length = psu_size * psu_size)
   
   # Initialisation de l'estimateur Pseudo-HT
-  HT_pseudo <- 0 
-  V_HT_pseudo <- 0
+  HT_pseudo = 0 
+  V_HT_pseudo = 0
   N_total <- sum(psu_counts$total_individus)  # Taille totale de la population
   
   # Sélection de la première PSU avec sa probabilité initiale
@@ -409,28 +412,32 @@ for (iteration in 1:n_iterations) {
     
     # Mise à jour séquentielle de l'estimateur Pseudo-HT uniquement si Sh = 1
     if (Sh == 1) {
-      Yh <- psu_counts[PSU_actuelle, "malades"] 
-      pi_h_1 <- psu_counts[PSU_actuelle, "proba_mise_a_jour"]
+      Yh = psu_counts[PSU_actuelle, "malades"] 
+      pi_h_1 = psu_counts[PSU_actuelle, "proba_mise_a_jour"]
       
       if (pi_h_1 > 0) {
-        HT_pseudo <- HT_pseudo + (Yh * Sh) / pi_h_1
-        V_HT_pseudo <- V_HT_pseudo + (1 / pi_h_1) * (1 / pi_h_1 - 1) * Yh**2
+        HT_pseudo = HT_pseudo + (Yh * Sh) / pi_h_1
+        V_HT_pseudo = V_HT_pseudo + (1 / pi_h_1) * (1 / pi_h_1 - 1) * Yh**2
       }
     }
   }
   
   # Normalisation de l'estimateur Pseudo-HT
-  Y_PHT <- HT_pseudo / N_total
+  Y_PHT = HT_pseudo / N_total
   V_PHT <- V_HT_pseudo / N_total**2
 
   # Calcul HT classique
   Y_HT <- sum(psu_counts$malades / psu_counts$proba_initiale) * 1 / 250000
-  V_HT <- sum((psu_counts$malades^2 / psu_counts$proba_initiale^2) / psu_counts$proba_initiale) - (sum(psu_counts$malades / psu_counts$proba_initiale))^2
+  # Calcul de la variance exacte de l'estimateur HT
+  V_HT <- sum(outer(psu_counts$malades, psu_counts$malades, "*") / outer(psu_counts$proba_initiale, psu_counts$proba_initiale, "*")) - 
+        (sum(psu_counts$malades / psu_counts$proba_initiale))^2
   CV_HT <- sqrt(V_HT) / Y_HT # coefficient de variation
+  CV_PHT <- sqrt(V_PHT) / Y_PHT
   
   # Comparaison PHT et HT
   rapport_variances <- V_PHT / V_HT
-  biais_relatif <- (Y_PHT - Y_HT) / Y_HT
+  biais_relatif_PHT <- (Y_PHT - 0.005) / 0.005
+  biais_relatif_HT <- (Y_HT - 0.005) / 0.005
   
   # Calcul des résultats pour cette itération
   m_ech <- nrow(as.data.frame(do.call(rbind, psu_selectionnees))) 
@@ -448,13 +455,14 @@ for (iteration in 1:n_iterations) {
   resultats_simulation_posa[iteration, "CV_PHT"] <- CV_PHT
   resultats_simulation_posa[iteration, "CV_HT"] <- CV_HT
   resultats_simulation_posa[iteration, "rapport_variances"] <- rapport_variances
-  resultats_simulation_posa[iteration, "biais_relatif"] <- biais_relatif
-
+  resultats_simulation_posa[iteration, "biais_relatif_PHT"] <- biais_relatif_PHT 
+  resultats_simulation_posa[iteration, "biais_relatif_HT"] <- biais_relatif_HT
 }
 
 
 # Résumé des résultats
 summary(resultats_simulation_posa)
+
 
 
 ```
@@ -501,7 +509,7 @@ plot_malades_08_nwho_gtrs <- ggplot(resultats_simulation_posa_final, aes(x = as.
 
 ```{r}
 set.seed(123) 
-n_iterations <- 300
+n_iterations <- 20
 
 # Création d'une matrice pour stocker les résultats
 resultats_simulation_cposa_final <- data.frame(
@@ -518,6 +526,11 @@ resultats_simulation_cposa <- data.frame(
 
 
 ```{r}
+
+recensement <- data.frame(
+  taille_ech = numeric(0),
+  valeur_proba = numeric(0)
+)
 
 m_min = 19  # Nombre minimal de PSU sélectionnées
 zz = 0
@@ -555,26 +568,21 @@ for (iteration in 1:n_iterations) {
       if (h < 225) {
         for (j in (h+1):225) {
             psu_counts$proba_mise_a_jour[j] <- psu_counts$proba_mise_a_jour[j] - 
-                                               ((1 - psu_counts$proba_mise_a_jour[h]) / (225 - h)) 
+                                               ((1 - psu_counts$proba_mise_a_jour[h - 1]) / (225 - h)) 
             
-          # Vérification que la probabilité mise à jour ne dépasse pas 1
-          psu_counts$proba_mise_a_jour[j] <- ifelse(psu_counts$proba_mise_a_jour[j] > 1, 1, psu_counts$proba_mise_a_jour[j])
+          # Vérification que la probabilité mise à jour ne dépasse pas 1 et soit positive
+          psu_counts$proba_mise_a_jour[j] <- max(0, min(psu_counts$proba_mise_a_jour[j], 1))
           }
-        }
-        
-        # Sélection de la dernière PSU
-        if (runif(n = 1, min = 0, max = 1) < psu_counts$proba_mise_a_jour[PSU_actuelle]) {
-          psu_selectionnees[[PSU_actuelle]] <- psu_counts[PSU_actuelle, ]
         }
     } else {
         # Mise à jour des probabilités uniquement si h < 225
         if (h < 225) {
           for (j in (h+1):225) {
             psu_counts$proba_mise_a_jour[j] <- psu_counts$proba_mise_a_jour[j] + 
-                                               (psu_counts$proba_mise_a_jour[h] / (225 - h)) 
+                                               (psu_counts$proba_mise_a_jour[h - 1] / (225 - h)) 
           
-            # Vérification que la probabilité mise à jour ne dépasse pas 1
-            psu_counts$proba_mise_a_jour[j] <- ifelse(psu_counts$proba_mise_a_jour[j] > 1, 1, psu_counts$proba_mise_a_jour[j])
+            # Vérification que la probabilité mise à jour ne dépasse pas 1 et soit positive
+            psu_counts$proba_mise_a_jour[j] <- max(0, min(psu_counts$proba_mise_a_jour[j], 1))
           }
         } 
         # Sélection de la dernière PSU
@@ -593,8 +601,11 @@ for (iteration in 1:n_iterations) {
         if (runif(n = 1, min = 0, max = 1) < psu_counts$proba_mise_a_jour[PSU_actuelle]) {
           psu_selectionnees[[PSU_actuelle]] <- psu_counts[PSU_actuelle, ]
         }
+        }
       }
-      }
+    taille <- length(psu_selectionnees[!sapply(psu_selectionnees, is.null)]) 
+    recensement[h, "taille_ech"] <- ifelse(is.null(taille), 0, taille) + 0
+    recensement[h, "valeur_proba"] <- psu_counts$proba_mise_a_jour[PSU_actuelle]
   }
   
   # Calcul des résultats pour cette itération
@@ -610,7 +621,6 @@ for (iteration in 1:n_iterations) {
 
 
 
-
 # Résumé des résultats
 summary(resultats_simulation_cposa)
 
@@ -620,7 +630,7 @@ summary(resultats_simulation_cposa)
 
 ```{r}
 # A modifier en fonction du taux de clustering
-resultats_simulation_cposa$taux_cluster <- 0.01
+resultats_simulation_cposa$taux_cluster <- 0.7
 
 # A la première itération
 resultats_simulation_cposa_final <- resultats_simulation_cposa
@@ -761,22 +771,16 @@ ggsave("final_combined_plot.png", combined_plot, width = 12, height = 8)
 ```
 
 
-## Comparaison avec un sondage proprotionnel à la taille
+## Sondage proprotionnel à la taille
 
 ```{r}
 
-n_min <- 27
+n_min <- 19
 
 # Initialisation des données et des probabilités
 psu_counts <- psu_counts %>% 
-  mutate(proba_initiale = total_individus / sum(total_individus) * 27)
+  mutate(proba_initiale = total_individus / sum(total_individus) * n_min)
 
-# Vérifier si la somme des probabilités initiales est supèrieur à n_min
-if (sum(psu_counts$proba_initiale) < n_min) {
-  facteur_ajustement <- n_min / sum(psu_counts$proba_initiale)
-  # Ajuster les probabilités pour que leur somme soit égale à n_min
-  psu_counts$proba_initiale <- psu_counts$proba_initiale * facteur_ajustement
-}
 psu_counts$weights <- 1 / psu_counts$proba_initiale
 
 
@@ -798,6 +802,7 @@ results <- replicate(n_simulations, {
   
   # Filtrer les PSU sélectionnés
   psu_counts_simple <- psu_counts[ind_tires == 1, ]
+  m_ech <- nrow(psu_counts_simple)
   
   # Total d'individus
   total_individus <- sum(psu_counts_simple$total_individus)
@@ -810,18 +815,19 @@ results <- replicate(n_simulations, {
   total_malades <- sum(psu_counts_simple_filtrer$malades)
   
   # Retourner les résultats
-  c(total_individus, total_malades)
+  c(total_individus, total_malades, m_ech)
 })
 
 # Transposer et convertir les résultats en data.frame
 results_df <- as.data.frame(t(results))
-colnames(results_df) <- c("Total_Individus", "Total_Malades")
+colnames(results_df) <- c("Total_Individus", "Total_Malades", "m_ech")
 
 # Résumé des résultats
 summary_results <- results_df %>%
   summarise(
     taille_echantillon = mean(Total_Individus),
     nombres_malades = mean(Total_Malades),
+    m_ech = mean(m_ech)
   )
 
 # Afficher les résultats résumés
@@ -879,6 +885,97 @@ print(plot_total_malades)
 ```
 
 
+
+
+## Comparaison CPoSA avec un sondage proportionnel à la taille
+
+```{r}
+
+stats_CPoSA <- resultats_simulation_cposa_final %>% 
+  reframe(rate_postive_case = (nombre_malades / taille_echantillon) * 100, 
+            accuracy_final_estimation = sqrt(((nombre_malades / taille_echantillon) - 0.005)**2),
+            final_sample_size = taille_echantillon,
+            cost_par_case_detected = 2900000 + 18900*m_ech + m_ech*6.5*mean(psu_counts$total_individus),
+          taux_cluster)
+
+stats_prop <- resultats_simulation_prop_final %>% 
+  filter(Total_Malades != 0) %>% 
+  reframe(rate_postive_case = (Total_Malades / Total_Individus) * 100, 
+            accuracy_final_estimation = sqrt(((Total_Malades / Total_Individus) / 100)**2),
+            final_sample_size = Total_Individus,
+            cost_par_case_detected = 2900000 + 18900*m_ech + m_ech*6.5*mean(psu_counts$total_individus),
+          taux_cluster)
+
+stats_prop <- stats_prop[c(1:20,5001:5020,12001:12020,17001:17020,22001:22020,27001:27020),]
+
+comparaison <- stats_CPoSA / stats_prop
+
+valeurs <- c(0.01, 0.3, 0.4, 0.5, 0.6, 0.7)
+
+# Mise à jour des valeurs de comparaison$taux_cluster
+for (i in 1:6) {
+  comparaison$taux_cluster[((i - 1) * 20 + 1):(i * 20)] <- valeurs[i]
+}
+
+comparaison <- comparaison %>% 
+  group_by(taux_cluster) %>% 
+  summarise(across(everything(), mean, na.rm = TRUE))
+
+variables_a_visualiser <- setdiff(names(comparaison), "taux_cluster")
+
+# Fonction pour créer un graphique avec un paramètre de nom d'axe Y et personnalisation de l'axe X
+create_plot <- function(data, var, y_label) {
+  ggplot(data, aes(x = taux_cluster, y = .data[[var]])) + 
+    geom_line() + 
+    geom_hline(yintercept = 1, linetype = "dashed", color = "red") + # Ajoute une ligne horizontale en pointillé à y = 1
+    labs(x = "Taux Cluster", y = y_label, title = paste("Graphique de", var)) + 
+    theme_minimal() +
+    theme(
+      panel.border = element_rect(color = "black", fill = NA, size = 1), # Délimite les bords du graphique
+      panel.grid.major = element_line(color = "grey80", size = 0.5), # Ajoute des lignes de grille
+      panel.grid.minor = element_blank(), # Enlève les lignes de grille mineures
+      axis.text.x = element_text(angle = 0, hjust = 0.5) # Ajuste l'orientation des textes sur l'axe X
+    ) +
+    scale_x_continuous(
+      breaks = c(0, 0.3, 0.4, 0.5, 0.6, 0.7), # Spécifie les ticks que tu veux afficher
+      labels = c("0", "0.3", "0.4", "0.5", "0.6", "0.7"), # Labels personnalisés
+      expand = c(0, 0) # Enlève les marges supplémentaires autour de l'axe X
+    )
+}
+
+# Liste des noms d'axes Y personnalisés
+y_labels <- c(
+  "Ability to detect positive cases",
+  "Accuracy of Final Estimate",
+  "Final Sample Size",
+  "Cost per Case Detected"
+)
+
+
+# Créer un graphique pour chaque variable
+plots <- lapply(variables_a_visualiser, function(var) {
+  # On utilise le label correspondant pour chaque variable
+  y_label <- y_labels[which(variables_a_visualiser == var)]
+  create_plot(comparaison, var, y_label)
+})
+
+# Affichage des graphiques
+for (i in seq_along(plots)) {
+  print(plots[[i]])
+}
+
+
+```
+
+
+
+
+
+
+
+
+
+
 ## Plot global PoSA vs CPoSA vs prop
 
 ```{r}
@@ -915,4 +1012,3 @@ plot_malades_nwho <- ggplot(resultats_combines, aes(x = as.factor(taux_cluster),
   theme_minimal()
 
 ```
-
