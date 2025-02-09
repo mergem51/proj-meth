@@ -52,93 +52,83 @@ centres_malades <- data.frame(
 ## Création des malades, à relancer pour chaque proportion de cas capté
 
 ```{r}
-# Étape 3 : Génération des malades
-prop_malades <- 0.005  # Proportion totale de malades dans la population
-prop_clusters <- 0.7 # Proportion de malades dans les clusters
-n_malades <- round(n_total * prop_malades)  # Nombre total de malades
-n_cluster_malades <- round(n_malades * prop_clusters)  # Nombre de malades dans les clusters
-n_outside_malades <- n_malades - n_cluster_malades  # Nombre de malades hors clusters
-mean_radius <- 50  # Rayon moyen autour des centres
+# Paramètres pour ajuster la proportion et la taille des clusters
+prop_cluster <- 0.5  # Proportion des malades dans les clusters
+mean_radius <- 100    # Rayon moyen des clusters
 
-# Générer les malades dans les clusters
-set.seed(456)
-malades_clusters <- do.call(rbind, lapply(1:n_centres, function(i) {
-  n_cluster <- round(n_cluster_malades / n_centres)  # Répartition des malades entre les clusters
-  data.frame(
-    id = NA,  # ID temporaire (non encore assigné)
-    x = rnorm(n_cluster, mean = centres_malades$x[i], sd = mean_radius),
-    y = rnorm(n_cluster, mean = centres_malades$y[i], sd = mean_radius),
-    malade = 1,  # Marquer ces individus comme malades
-    cluster = i  # Identifier le cluster
-  )
-}))
+# Calcul du nombre total de malades
+n_malades <- floor(250000 * 0.005)  # 10% de la population sont malades
 
-# Assurer que les malades dans les clusters restent dans la grille
-malades_clusters$x <- pmax(0, pmin(1000, malades_clusters$x))
-malades_clusters$y <- pmax(0, pmin(1000, malades_clusters$y))
+# Étape 3 : Attribution des malades aux clusters ou au hasard
+# 1. Attribution des malades aux clusters (proportion prop_cluster)
+n_malades_clusters <- floor(n_malades * prop_cluster)
 
-# Générer les malades hors des clusters
-set.seed(789)
-malades_outside <- data.frame(
-  id = integer(0),   # ID temporaire vide (type entier)
-  x = numeric(0),    # Coordonnée x vide
-  y = numeric(0),    # Coordonnée y vide
-  malade = integer(0)  # Marqueur vide
-)
+# Créer un vecteur de maladies initialement à 0 (pas malades)
+population$malade <- 0
 
-
-while (nrow(malades_outside) < n_outside_malades) {
-  # Calculer le nombre de malades hors clusters à ajouter
-  malades_outside_a_ajouter <- n_outside_malades - nrow(malades_outside)
-  
-  # Générer des candidats hors clusters
-  candidates <- data.frame(
-    x = runif(malades_outside_a_ajouter, min = 0, max = 1000),
-    y = runif(malades_outside_a_ajouter, min = 0, max = 1000)
-  )
-  
-  # Calculer la distance aux centres des clusters
-  distances <- sapply(1:n_centres, function(i) {
-    sqrt((candidates$x - centres_malades$x[i])^2 + (candidates$y - centres_malades$y[i])^2)
-  })
-  
-  # Garder les points éloignés des clusters
-  if (malades_outside_a_ajouter > 1) {
-    outside <- rowSums(distances < mean_radius * 2) == 0  # Ajuster la zone d'exclusion
-  } else { # si on a qu'un seul individu à ajouter on ne peut pas utiliser rowSums (on utilise juste sum)
-    outside <- sum(distances < mean_radius * 2) == 0  # Ajuster la zone d'exclusion
-  }
-  
-  malades_outside <- rbind(
-    malades_outside,
-    data.frame(
-      id = NA, 
-      x = candidates[outside, "x"], 
-      y = candidates[outside, "y"], 
-      malade = 1
-    )
-  )
+# Fonction pour identifier les individus dans un rayon donné autour d'un centre
+identifie_individus_dans_cluster <- function(centre_x, centre_y, rayon) {
+  distances <- sqrt((population$x - centre_x)^2 + (population$y - centre_y)^2)
+  return(which(distances <= rayon))
 }
 
-# Ajouter les IDs à la population
-malades_clusters$id <- sample(population$id, nrow(malades_clusters))
-malades_outside$id <- sample(setdiff(population$id, malades_clusters$id), nrow(malades_outside))
+# Liste des indices des malades dans les clusters
+indices_malades_clusters <- integer(0)
 
-# Fusionner les malades
-malades <- rbind(
-  malades_clusters[, c("id", "x", "y", "malade")],
-  malades_outside[, c("id", "x", "y", "malade")]
-)
+# Pour répartir équitablement 1/3 des malades dans chaque cluster
+malades_par_cluster <- floor(n_malades_clusters / n_centres)
 
-# Ajouter les malades à la population globale
-population$malade <- 0
-test <- population
-population[population$id %in% malades$id, c("x", "y", "malade")] <- malades[, c("x", "y", "malade")]
+for (i in 1:n_centres) {
+  # Identifier les individus dans le rayon autour du centre du cluster
+  individus_dans_cluster <- identifie_individus_dans_cluster(centres_malades$x[i], centres_malades$y[i], mean_radius)
+  
+  # Si le nombre d'individus dans le rayon est plus grand que le nombre de malades à attribuer, sélectionner aléatoirement
+  if (length(individus_dans_cluster) >= malades_par_cluster) {
+    malades_dans_cluster <- sample(individus_dans_cluster, malades_par_cluster)
+    indices_malades_clusters <- c(indices_malades_clusters, malades_dans_cluster)
+  }
+}
+
+# Mettre à jour les malades dans la population
+population$malade[indices_malades_clusters] <- 1
+
+# Créer la table "malade_cluster" 
+malades_clusters <- population[indices_malades_clusters, c("id", "x", "y")]
+
+
+# 2. Attribution des malades restants de manière aléatoire en dehors des clusters
+# Liste des indices des malades dans les clusters
+indices_malades_clusters <- integer(0)
+
+# Créer une liste pour stocker les informations des individus dans chaque cluster
+individus_dans_les_clusters <- list()
+
+for (i in 1:n_centres) {
+  # Identifier les individus dans le rayon autour du centre du cluster
+  individus_dans_cluster <- identifie_individus_dans_cluster(centres_malades$x[i], centres_malades$y[i], mean_radius)
+  
+  # Ajouter ces individus à la liste "individus_dans_les_clusters"
+  individus_dans_les_clusters[[i]] <- population[individus_dans_cluster, c("id", "x", "y")]
+
+}
+
+individus_dans_les_clusters <- rbind(individus_dans_les_clusters[[1]],individus_dans_les_clusters[[2]],individus_dans_les_clusters[[3]])
+
+# Ecartement des individus dans les cluster
+individus_hors_cluster <- unique(population %>% 
+                                   filter(!(id %in% unique(individus_dans_les_clusters$id))))
+
+# Attribution du caractére malade dans cette population
+malades_hors_cluster <- sample(individus_hors_cluster$id, n_malades - n_malades_clusters)
+indices_hors_clusters <- c(indices_malades_clusters, malades_hors_cluster)
+
+# Assigner les malades hors des clusters
+population$malade[indices_hors_clusters] <- 1
 
 # Étape 4 : Visualisation
 library(ggplot2)
 
-# Séparerles malades dans et hors clusters pour la visualisation
+# Séparer les malades dans et hors clusters pour la visualisation
 malades_clusters_plot <- malades_clusters
 malades_outside_plot <- subset(population, malade == 1 & !(id %in% malades_clusters$id))
 
