@@ -53,11 +53,11 @@ centres_malades <- data.frame(
 
 ```{r}
 # Paramètres pour ajuster la proportion et la taille des clusters
-prop_cluster <- 0.01 # Proportion des malades dans les clusters
-mean_radius <- 80    # Rayon moyen des clusters
+prop_cluster <- 0 # Proportion des malades dans les clusters
+mean_radius <- 80     # Rayon moyen des clusters
 
 # Calcul du nombre total de malades
-n_malades <- floor(250000 * 0.005)  # 10% de la population sont malades
+n_malades <- floor(250000 * 0.005)  # 0.5% de la population sont malades
 
 # Étape 3 : Attribution des malades aux clusters ou au hasard
 # 1. Attribution des malades aux clusters (proportion prop_cluster)
@@ -66,76 +66,82 @@ n_malades_clusters <- floor(n_malades * prop_cluster)
 # Créer un vecteur de maladies initialement à 0 (pas malades)
 population$malade <- 0
 
-# Fonction pour identifier les individus dans un rayon donné autour d'un centre
-identifie_individus_dans_cluster <- function(centre_x, centre_y, rayon) {
-  distances <- sqrt((population$x - centre_x)^2 + (population$y - centre_y)^2)
-  return(which(distances <= rayon))
-}
-
-# Liste des indices des malades dans les clusters
-indices_malades_clusters <- integer(0)
-
-# Pour répartir équitablement 1/3 des malades dans chaque cluster
-malades_par_cluster <- floor(n_malades_clusters / n_centres)
-
-for (i in 1:n_centres) {
-  # Identifier les individus dans le rayon autour du centre du cluster
-  individus_dans_cluster <- identifie_individus_dans_cluster(centres_malades$x[i], centres_malades$y[i], mean_radius)
-  
-  # Si le nombre d'individus dans le rayon est plus grand que le nombre de malades à attribuer, sélectionner aléatoirement
-  if (length(individus_dans_cluster) >= malades_par_cluster) {
-    malades_dans_cluster <- sample(individus_dans_cluster, malades_par_cluster)
-    indices_malades_clusters <- c(indices_malades_clusters, malades_dans_cluster)
+# Cas où prop_cluster = 0, attribuer aléatoirement tous les malades à la population entière
+if (prop_cluster == 0) {
+  indices_malades <- sample(population$id, n_malades)
+  population$malade[indices_malades] <- 1
+} else {
+  # Fonction pour identifier les individus dans un rayon donné autour d'un centre
+  identifie_individus_dans_cluster <- function(centre_x, centre_y, rayon) {
+    distances <- sqrt((population$x - centre_x)^2 + (population$y - centre_y)^2)
+    return(which(distances <= rayon))
   }
+
+  # Liste des indices des malades dans les clusters
+  indices_malades_clusters <- integer(0)
+
+  # Pour répartir équitablement les malades dans chaque cluster
+  malades_par_cluster <- floor(n_malades_clusters / n_centres)
+
+  for (i in 1:n_centres) {
+    # Identifier les individus dans le rayon autour du centre du cluster
+    individus_dans_cluster <- identifie_individus_dans_cluster(centres_malades$x[i], centres_malades$y[i], mean_radius)
+
+    # Si le nombre d'individus dans le rayon est suffisant, sélectionner aléatoirement
+    if (length(individus_dans_cluster) >= malades_par_cluster) {
+      malades_dans_cluster <- sample(individus_dans_cluster, malades_par_cluster)
+      indices_malades_clusters <- c(indices_malades_clusters, malades_dans_cluster)
+    }
+  }
+
+  # Mettre à jour les malades dans la population
+  population$malade[indices_malades_clusters] <- 1
+
+  # Créer la table "malade_cluster" 
+  malades_clusters <- population[indices_malades_clusters, c("id", "x", "y")]
+
+  # Attribution des malades restants de manière aléatoire en dehors des clusters
+  individus_dans_les_clusters <- list()
+
+  for (i in 1:n_centres) {
+    individus_dans_cluster <- identifie_individus_dans_cluster(centres_malades$x[i], centres_malades$y[i], mean_radius)
+    individus_dans_les_clusters[[i]] <- population[individus_dans_cluster, c("id", "x", "y")]
+  }
+
+  # Combiner les individus des clusters
+  individus_dans_les_clusters <- do.call(rbind, individus_dans_les_clusters)
+
+  # Identifier les individus hors clusters
+  individus_hors_cluster <- population %>% 
+    filter(!(id %in% individus_dans_les_clusters$id)) %>%
+    distinct()
+
+  # Attribution du caractère malade dans cette population hors clusters
+  malades_hors_cluster <- sample(individus_hors_cluster$id, n_malades - n_malades_clusters)
+  indices_hors_clusters <- c(indices_malades_clusters, malades_hors_cluster)
+
+  # Assigner les malades hors des clusters
+  population$malade[indices_hors_clusters] <- 1
 }
-
-# Mettre à jour les malades dans la population
-population$malade[indices_malades_clusters] <- 1
-
-# Créer la table "malade_cluster" 
-malades_clusters <- population[indices_malades_clusters, c("id", "x", "y")]
-
-
-# 2. Attribution des malades restants de manière aléatoire en dehors des clusters
-# Liste des indices des malades dans les clusters
-indices_malades_clusters <- integer(0)
-
-# Créer une liste pour stocker les informations des individus dans chaque cluster
-individus_dans_les_clusters <- list()
-
-for (i in 1:n_centres) {
-  # Identifier les individus dans le rayon autour du centre du cluster
-  individus_dans_cluster <- identifie_individus_dans_cluster(centres_malades$x[i], centres_malades$y[i], mean_radius)
-  
-  # Ajouter ces individus à la liste "individus_dans_les_clusters"
-  individus_dans_les_clusters[[i]] <- population[individus_dans_cluster, c("id", "x", "y")]
-
-}
-
-individus_dans_les_clusters <- rbind(individus_dans_les_clusters[[1]],individus_dans_les_clusters[[2]],individus_dans_les_clusters[[3]])
-
-# Ecartement des individus dans les cluster
-individus_hors_cluster <- unique(population %>% 
-                                   filter(!(id %in% unique(individus_dans_les_clusters$id))))
-
-# Attribution du caractére malade dans cette population
-malades_hors_cluster <- sample(individus_hors_cluster$id, n_malades - n_malades_clusters)
-indices_hors_clusters <- c(indices_malades_clusters, malades_hors_cluster)
-
-# Assigner les malades hors des clusters
-population$malade[indices_hors_clusters] <- 1
 
 # Étape 4 : Visualisation
 library(ggplot2)
 
 # Séparer les malades dans et hors clusters pour la visualisation
-malades_clusters_plot <- malades_clusters
-malades_outside_plot <- subset(population, malade == 1 & !(id %in% malades_clusters$id))
+if (prop_cluster == 0) {
+  # Tous les malades sont attribués aléatoirement, donc il n'y a pas de malades en clusters
+  malades_clusters_plot <- data.frame(id = integer(0), x = numeric(0), y = numeric(0))  # Tableau vide
+  malades_outside_plot <- subset(population, malade == 1)  # Tous les malades sont hors clusters
+} else {
+  malades_clusters_plot <- malades_clusters
+  malades_outside_plot <- subset(population, malade == 1 & !(id %in% malades_clusters$id))
+}
 
+# Création du graphique
 ggplot() +
   geom_point(data = malades_outside_plot, aes(x = x, y = y), color = "blue", size = 0.9, alpha = 0.7) +
   geom_point(data = malades_clusters_plot, aes(x = x, y = y), color = "red", size = 0.9, alpha = 0.7) +
-  geom_point(data = centres_malades, aes(x = x, y = y), color = "black", size = 0.5, shape = 8) +
+  {if (prop_cluster > 0) geom_point(data = centres_malades, aes(x = x, y = y), color = "black", size = 0.5, shape = 8)} +
   labs(title = "Répartition des malades : clusters (rouge) et hors clusters (bleu)",
        x = "X", y = "Y") +
   coord_fixed(ratio = 1, xlim = c(0, 1000), ylim = c(0, 1000)) +
@@ -176,14 +182,14 @@ psu_counts$PSU <- seq(1, 225, by = 1)
 psu_counts$Y_h <- psu_counts$malades / psu_counts$total_individus
 
 # On détermine d'abord pour chaque PSU si elle est malade ou pas. Si la prévalence dans une PSU est supérieure à 0.5%, alors on dira que cette PSU est malade. Sinon, cette PSU n'est pas malade. 
+
 psu_counts$PSU_malade <- psu_counts$Y_h > 0.005
 
 
 
 ## Détermination de l'ordre de visite des PSU 
 
-## Chemin serpent serpent
-
+## Chemin serpent 
 
 # Création d'un chemin "serpent" pour parcourir les PSU
 # D'abord on initialise un vecteur nul qui contiendra par la suite les PSU dans l'ordre de visite.
@@ -202,7 +208,6 @@ chemin # numéros des PSU dans l'ordre où ils devront être visités
 
 chemin_mc_posa <- chemin
 chemin_mc_cposa <- chemin
-
 
 
 ```
@@ -300,7 +305,7 @@ chemin_mc_cposa <- chemin
 
 ```{r}
 set.seed(123) 
-n_iterations <- 5000
+n_iterations <- 1000
 
 # Création d'une matrice pour stocker les résultats
 resultats_simulation_posa_final <- data.frame(
@@ -321,7 +326,8 @@ resultats_simulation_posa <- data.frame(
 
 ```{r}
 i = 0
-m_min = 19   # Nombre minimal de PSU sélectionnées
+m_min = 19 # Nombre minimal de PSU sélectionnées
+n_iterations = 1000
 
 for (iteration in 1:n_iterations) {
   # Initialisation des données et des probabilités
@@ -330,6 +336,7 @@ for (iteration in 1:n_iterations) {
   
   # Initialisation des probabilités mises à jour (au départ égales aux probabilités initiales)
   psu_counts$proba_mise_a_jour <- psu_counts$proba_initiale
+  psu_counts$psu_selectionne <- 0
   
   # Initialisation de la liste des PSU sélectionnées
   psu_selectionnees <- vector("list", length = psu_size * psu_size)
@@ -342,28 +349,38 @@ for (iteration in 1:n_iterations) {
   # Sélection de la première PSU avec sa probabilité initiale
   if (runif(n = 1, min = 0, max = 1) < psu_counts$proba_initiale[1]) {
     psu_selectionnees[[1]] <- psu_counts[1, ]
+    psu_counts$psu_selectionne[1] <- 1
+    
+    if (psu_counts$PSU_malade[1]) {
+        psu_counts[2, "proba_mise_a_jour"] <- 1
+      }
   }
   
   chemin_mc_posa_tempo <- chemin_mc_posa
   
   # Parcours des PSU pour sélection adaptative et mise à jour de HT_pseudo
-  for (h in 2:225) { 
-    PSU_actuelle <- chemin_mc_posa_tempo[h]
-    PSU_precedente <- chemin_mc_posa_tempo[h - 1]
+  for (h in 2:224) { 
+    PSU_actuelle <- chemin_mc_posa_tempo[h + 1]
+    PSU_precedente <- chemin_mc_posa_tempo[h]
     
     # Mise à jour des probabilités des PSU voisines si la PSU précédente est malade
-    if (!(is.null(psu_selectionnees[[PSU_precedente]])) & psu_counts$PSU_malade[PSU_precedente]) {
-      psu_counts$proba_mise_a_jour[PSU_actuelle] <- 1
-      psu_selectionnees[[PSU_actuelle]] <- psu_counts[PSU_actuelle, ]
-    } else {
+    if (runif(n = 1, min = 0, max = 1) < psu_counts$proba_initiale[PSU_precedente]) {
+      psu_counts$psu_selectionne[PSU_precedente] <- 1 
+      psu_selectionnees[[PSU_precedente]] <- psu_counts[PSU_precedente, ]
+      
+      if (psu_counts$PSU_malade[PSU_precedente]) {
+        psu_counts[PSU_actuelle, "proba_mise_a_jour"] <- 1
+      } } else {
       # Sélection avec la probabilité d'inclusion initiale ou mise à jour
-      if (runif(n = 1, min = 0, max = 1) < psu_counts$proba_mise_a_jour[PSU_actuelle]) {
-        psu_selectionnees[[PSU_actuelle]] <- psu_counts[PSU_actuelle, ]
+      if (runif(n = 1, min = 0, max = 1) < psu_counts$proba_mise_a_jour[PSU_precedente] & psu_counts$PSU_malade[PSU_precedente]) {
+        psu_counts$psu_selectionne[PSU_precedente] <- 1
+        psu_selectionnees[[PSU_precedente]] <- psu_counts[PSU_precedente, ]
       }
     }
+          
     
     # Définition de S_h : indicatrice de sélection
-    Sh <- ifelse(!is.null(psu_selectionnees[[PSU_actuelle]]), 1, 0)
+    Sh <- ifelse(!is.null(psu_selectionnees[[PSU_precedente]]), 1, 0)
     
     # Mise à jour séquentielle de l'estimateur Pseudo-HT uniquement si Sh = 1
     if (Sh == 1) {
@@ -376,6 +393,18 @@ for (iteration in 1:n_iterations) {
       }
     }
   }
+  
+  # Cas particulier pour la dernière PSU (h = 225)
+  if (h == 225) {
+    if (runif(n = 1, min = 0, max = 1) < psu_counts$proba_mise_a_jour[225]) {
+      psu_counts$psu_selectionne[225] <- 1 
+          
+      # Vérification si la dernière PSU est malade
+      if (psu_counts$PSU_malade[225]) {
+          psu_selectionnees[[PSU_precedente]] <- psu_counts[PSU_precedente,]
+        }
+      }
+    }
   
   # Normalisation de l'estimateur Pseudo-HT
   Y_PHT = HT_pseudo / N_total
@@ -396,13 +425,15 @@ for (iteration in 1:n_iterations) {
   
   # Calcul des résultats pour cette itération
   m_ech <- nrow(as.data.frame(do.call(rbind, psu_selectionnees))) 
-  taille_echantillon <- sum(sapply(psu_selectionnees, function(psu) if (!is.null(psu)) psu$total_individus else 0))
-  nombre_malades <- sum(sapply(psu_selectionnees, function(psu) if (!is.null(psu) && psu$PSU_malade) psu$malades else 0))
+  # Obtention de la table liée à l'échantillon
+  psu_counts_ech <- psu_counts %>% 
+    filter(psu_selectionne == 1)
   
   # Enregistrement des résultats
-  resultats_simulation_posa[iteration, "taille_echantillon"] <- taille_echantillon
-  resultats_simulation_posa[iteration, "nombre_malades"] <- nombre_malades
-  resultats_simulation_posa[iteration, "m_ech"] <- m_ech
+  resultats_simulation_posa[iteration, "taille_echantillon"] <- sum(psu_counts_ech$total_individus)
+  resultats_simulation_posa[iteration, "nombre_malades"] <- sum(psu_counts_ech$malades)
+  resultats_simulation_posa[iteration, "m_ech_malades"] <- m_ech
+  resultats_simulation_posa[iteration, "m_ech"] <- sum(psu_counts$psu_selectionne)
   resultats_simulation_posa[iteration, "Y_HT"] <- Y_HT
   resultats_simulation_posa[iteration, "Y_PHT"] <- Y_PHT
   #resultats_simulation_posa[iteration, "V_HT"] <- V_HT
@@ -420,7 +451,6 @@ summary(resultats_simulation_posa)
 
 
 
-
 ```
 
 
@@ -428,7 +458,7 @@ summary(resultats_simulation_posa)
 
 ```{r}
 # A modifier en fonction du taux de clustering
-resultats_simulation_posa$taux_cluster <- 0.7
+resultats_simulation_posa$taux_cluster <- 0.5
 
 # A la première itération
 resultats_simulation_posa_final <- resultats_simulation_posa
@@ -465,9 +495,7 @@ ggplot(resultats_simulation_posa_final, aes(x = as.factor(taux_cluster), y = nom
 
 ```{r}
 set.seed(123) 
-n_iterations <- 500
-
-psu_counts$psu_selectionne <- 0
+n_iterations <- 30
 
 # Création d'une matrice pour stocker les résultats
 resultats_simulation_cposa_final <- data.frame(
@@ -487,7 +515,8 @@ resultats_simulation_cposa <- data.frame(
 
 i = 0
 
-m_min = 19  # Nombre minimal de PSU sélectionnées
+m_min = 21  # Nombre minimal de PSU sélectionnées
+n_iterations <- 30
 
 for (iteration in 1:n_iterations) {
   repeat {
@@ -504,28 +533,27 @@ for (iteration in 1:n_iterations) {
       psu_selectionnees <- vector("list", length = psu_size * psu_size)
       
       # Sélection de la première PSU si h = 1
-      if (h == 1) {
-        if (runif(n = 1, min = 0, max = 1) < psu_counts$proba_initiale[1]) {
-          psu_counts$psu_selectionne[1] <- 1 
+      if (runif(n = 1, min = 0, max = 1) < psu_counts$proba_initiale[1]) {
+        psu_counts$psu_selectionne[1] <- 1 
           
-          # Vérification si la PSU sélectionnée est malade
-          if (psu_counts$PSU_malade[1]) {
-            psu_selectionnees[[1]] <- psu_counts[1, ]
-            psu_counts[2, "proba_mise_a_jour"] <- 1
-          } 
+        # Vérification si la PSU sélectionnée est malade
+        if (psu_counts$PSU_malade[1]) {
+          psu_selectionnees[[1]] <- psu_counts[1, ]
+          psu_counts[2, "proba_mise_a_jour"] <- 1
+        } 
           
-          # Mise à jour des probabilités pour les PSU suivantes
-          for (j in (h+2):225) {
-            psu_counts$proba_mise_a_jour[j] <- max(0, min(psu_counts$proba_mise_a_jour[j] - 
-                                                   ((1 - psu_counts$proba_mise_a_jour[1]) / (225 - h)), 1))
-          }
-        } else {
-          for (j in (h+1):225) {
-            psu_counts$proba_mise_a_jour[j] <- max(0, min(psu_counts$proba_mise_a_jour[j] + 
-                                                   ((psu_counts$proba_mise_a_jour[1]) / (225 - h)), 1))
-          }
+        # Mise à jour des probabilités pour les PSU suivantes
+        for (j in 3:225) {
+          psu_counts$proba_mise_a_jour[j] <- max(0, min(psu_counts$proba_mise_a_jour[j] - 
+                                                   ((1 - psu_counts$proba_mise_a_jour[1]) / (225 - 1)), 1))
         }
+        } else {
+          for (j in 2:225) {
+            psu_counts$proba_mise_a_jour[j] <- max(0, min(psu_counts$proba_mise_a_jour[j] + 
+                                                   ((psu_counts$proba_mise_a_jour[1]) / (225 - 1)), 1))
+          }
       }
+      
 
       # Copie du chemin de marche aléatoire
       chemin_mc_cposa_tempo <- chemin_mc_cposa
@@ -560,7 +588,12 @@ for (iteration in 1:n_iterations) {
               psu_counts$proba_mise_a_jour[j] <- max(0, min(psu_counts$proba_mise_a_jour[j] + 
                                                  (psu_counts$proba_mise_a_jour[PSU_precedente] / (225 - h)), 1))
             }
+            # Sélection de la PSU précédente en fonction de sa probabilité
+            if (runif(n = 1, min = 0, max = 1) < psu_counts$proba_initiale[PSU_precedente] & psu_counts$PSU_malade[PSU_precedente]) {
+              psu_counts$psu_selectionne[PSU_precedente] <- 1 
+              psu_selectionnees[[PSU_precedente]] <- psu_counts[PSU_precedente, ]
           } 
+        }
         }
       }
 
@@ -578,6 +611,9 @@ for (iteration in 1:n_iterations) {
       
       # Calcul du nombre d'observations dans l'échantillon
       m_ech <- nrow(as.data.frame(do.call(rbind, psu_selectionnees))) 
+      taille_echantillon <- sum(sapply(psu_selectionnees, function(psu) if (!is.null(psu)) psu$total_individus else 0))
+      nombre_malades <- sum(sapply(psu_selectionnees, function(psu) if (!is.null(psu) && psu$PSU_malade) psu$malades else 0))
+  
       
       # Obtention de la table des PSU sélectionnées
       psu_counts_ech <- psu_counts %>% filter(psu_selectionne == 1)
@@ -587,6 +623,8 @@ for (iteration in 1:n_iterations) {
       resultats_simulation_cposa[iteration, "nombre_malades"] <- sum(psu_counts_ech$malades, na.rm = TRUE)
       resultats_simulation_cposa[iteration, "m_ech_malades"] <- m_ech
       resultats_simulation_cposa[iteration, "m_ech"] <- sum(psu_counts$psu_selectionne, na.rm = TRUE)
+      
+      table(psu_counts$psu_selectionne)
       
       break # Sortie du repeat si aucune erreur
 
@@ -608,7 +646,7 @@ summary(resultats_simulation_cposa)
 
 ```{r}
 # A modifier en fonction du taux de clustering
-resultats_simulation_cposa$taux_cluster <- 0.7
+resultats_simulation_cposa$taux_cluster <- 0.5
 
 # A la première itération
 resultats_simulation_cposa_final <- resultats_simulation_cposa
@@ -1045,14 +1083,30 @@ psu_selectionnees_CPoSA_2 <- psu_selectionnees
 
 
 
+```{r}
+set.seed(123) 
+n_iterations <- 1000
+
+# Création d'une matrice pour stocker les résultats
+resultats_simulation_posa_final <- data.frame(
+  taille_echantillon = numeric(n_iterations),
+  nombre_malades = numeric(n_iterations)
+)
+
+resultats_simulation_posa <- data.frame(
+  taille_echantillon = numeric(n_iterations),
+  nombre_malades = numeric(n_iterations)
+)
+
+```
 
 
-
-## Simulation Monte-Carlo PoSA non fini
+## Simulation Monte-Carlo PoSA 
 
 ```{r}
 i = 0
-m_min = 27   # Nombre minimal de PSU sélectionnées
+m_min = 19 # Nombre minimal de PSU sélectionnées
+
 
 for (iteration in 1:n_iterations) {
   # Initialisation des données et des probabilités
@@ -1075,6 +1129,10 @@ for (iteration in 1:n_iterations) {
   if (runif(n = 1, min = 0, max = 1) < psu_counts$proba_initiale[1]) {
     psu_selectionnees[[1]] <- psu_counts[1, ]
     psu_counts$psu_selectionne[1] <- 1
+    
+    if (psu_counts$PSU_malade[1]) {
+        psu_counts[2, "proba_mise_a_jour"] <- 1
+      }
   }
   
   chemin_mc_posa_tempo <- chemin_mc_posa
@@ -1087,12 +1145,18 @@ for (iteration in 1:n_iterations) {
     # Mise à jour des probabilités des PSU voisines si la PSU précédente est malade
     if (runif(n = 1, min = 0, max = 1) < psu_counts$proba_initiale[PSU_precedente]) {
       psu_counts$psu_selectionne[PSU_precedente] <- 1 
+      psu_selectionnees[[PSU_precedente]] <- psu_counts[PSU_precedente, ]
       
       if (psu_counts$PSU_malade[PSU_precedente]) {
-        psu_selectionnees[[PSU_precedente]] <- psu_counts[PSU_precedente, ]
         psu_counts[PSU_actuelle, "proba_mise_a_jour"] <- 1
+      } } else {
+      # Sélection avec la probabilité d'inclusion initiale ou mise à jour
+      if (runif(n = 1, min = 0, max = 1) < psu_counts$proba_mise_a_jour[PSU_precedente] & psu_counts$PSU_malade[PSU_precedente]) {
+        psu_counts$psu_selectionne[PSU_precedente] <- 1
+        psu_selectionnees[[PSU_precedente]] <- psu_counts[PSU_precedente, ]
       }
-    } 
+    }
+          
     
     # Définition de S_h : indicatrice de sélection
     Sh <- ifelse(!is.null(psu_selectionnees[[PSU_precedente]]), 1, 0)
@@ -1165,5 +1229,35 @@ for (iteration in 1:n_iterations) {
 summary(resultats_simulation_posa)
 
 
+
+```
+
+## A update après chaque simulation lancée
+
+```{r}
+# A modifier en fonction du taux de clustering
+resultats_simulation_posa$taux_cluster <- 0.7
+
+# A la première itération
+resultats_simulation_posa_final <- resultats_simulation_posa
+
+# Pour le reste
+resultats_simulation_posa_final <- rbind(resultats_simulation_posa_final,resultats_simulation_posa)
+```
+
+```{r}
+plot_taille_ech_08_nwho_posa <- ggplot(resultats_simulation_posa_final, aes(x = as.factor(taux_cluster), y = taille_echantillon)) +
+  geom_boxplot(fill = "skyblue", color = "black") +
+  labs(title = "Boxplot de tailles_echantillon par taux_cluster",
+       x = "Taux Cluster",
+       y = "Taille de l'échantillon") +
+  theme_minimal()
+
+plot_malades_08_nwho_posa <- ggplot(resultats_simulation_posa_final, aes(x = as.factor(taux_cluster), y = nombre_malades)) +
+  geom_boxplot(fill = "salmon", color = "black") +
+  labs(title = "Boxplot de nombre_malades par taux_cluster",
+       x = "Taux Cluster",
+       y = "Nombre de malades") +
+  theme_minimal()
 
 ```
