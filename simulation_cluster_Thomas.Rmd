@@ -515,8 +515,8 @@ resultats_simulation_cposa <- data.frame(
 
 i = 0
 
-m_min = 21  # Nombre minimal de PSU sélectionnées
-n_iterations <- 30
+m_min = 22  # Nombre minimal de PSU sélectionnées
+n_iterations <- 50
 
 for (iteration in 1:n_iterations) {
   repeat {
@@ -551,6 +551,11 @@ for (iteration in 1:n_iterations) {
           for (j in 2:225) {
             psu_counts$proba_mise_a_jour[j] <- max(0, min(psu_counts$proba_mise_a_jour[j] + 
                                                    ((psu_counts$proba_mise_a_jour[1]) / (225 - 1)), 1))
+          }
+            # Sélection de la PSU précédente en fonction de sa probabilité
+            if (runif(n = 1, min = 0, max = 1) < psu_counts$proba_initiale[1] & psu_counts$PSU_malade[1]) {
+              psu_counts$psu_selectionne[1] <- 1 
+              psu_selectionnees[[1]] <- psu_counts[1, ]
           }
       }
       
