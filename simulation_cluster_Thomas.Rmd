@@ -53,8 +53,8 @@ centres_malades <- data.frame(
 
 ```{r}
 # Paramètres pour ajuster la proportion et la taille des clusters
-prop_cluster <- 0 # Proportion des malades dans les clusters
-mean_radius <- 80     # Rayon moyen des clusters
+prop_cluster <- 0.7 # Proportion des malades dans les clusters
+mean_radius <- 90    # Rayon moyen des clusters
 
 # Calcul du nombre total de malades
 n_malades <- floor(250000 * 0.005)  # 0.5% de la population sont malades
@@ -142,11 +142,17 @@ ggplot() +
   geom_point(data = malades_outside_plot, aes(x = x, y = y), color = "blue", size = 0.9, alpha = 0.7) +
   geom_point(data = malades_clusters_plot, aes(x = x, y = y), color = "red", size = 0.9, alpha = 0.7) +
   {if (prop_cluster > 0) geom_point(data = centres_malades, aes(x = x, y = y), color = "black", size = 0.5, shape = 8)} +
+  geom_hline(yintercept = seq(0, 1000, length.out = 16), color = "gray80", linetype = "dashed") + 
+  geom_vline(xintercept = seq(0, 1000, length.out = 16), color = "gray80", linetype = "dashed") +
   labs(title = "Répartition des malades : clusters (rouge) et hors clusters (bleu)",
        x = "X", y = "Y") +
   coord_fixed(ratio = 1, xlim = c(0, 1000), ylim = c(0, 1000)) +
   theme_minimal() +
-  theme(plot.title = element_text(hjust = 0.5, size = 16))
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 16),
+    panel.grid.major = element_blank(),  # Supprime la grille principale
+    panel.grid.minor = element_blank()   # Supprime la grille secondaire
+  )
 
 
 
@@ -210,6 +216,20 @@ chemin_mc_posa <- chemin
 chemin_mc_cposa <- chemin
 
 
+```
+
+## Calcul du coefficient de variation inter-PSU k
+
+```{r}
+# Prévalence dans la population
+Y_barre <- 0.005
+
+# On calcule ensuite la variance de (Y_h)^barre avec la formule donnée page 22 de l'article
+Var_Yh_barre <- 1 / n_total * sum( ((psu_counts$Y_h - Y_barre)**2) * psu_counts$total_individus )
+
+# Puis on détermine k avec la formule page 22 de l'article
+k <- sqrt(Var_Yh_barre) / Y_barre
+k
 ```
 
 
@@ -305,7 +325,7 @@ chemin_mc_cposa <- chemin
 
 ```{r}
 set.seed(123) 
-n_iterations <- 1000
+n_iterations <- 5000
 
 # Création d'une matrice pour stocker les résultats
 resultats_simulation_posa_final <- data.frame(
@@ -326,8 +346,8 @@ resultats_simulation_posa <- data.frame(
 
 ```{r}
 i = 0
-m_min = 19 # Nombre minimal de PSU sélectionnées
-n_iterations = 1000
+m_min = 27 # Nombre minimal de PSU sélectionnées
+n_iterations = 5000
 
 for (iteration in 1:n_iterations) {
   # Initialisation des données et des probabilités
@@ -457,14 +477,16 @@ summary(resultats_simulation_posa)
 ## A update après chaque simulation lancée
 
 ```{r}
+
 # A modifier en fonction du taux de clustering
-resultats_simulation_posa$taux_cluster <- 0.5
+resultats_simulation_posa$taux_cluster <- 0.7
 
 # A la première itération
 resultats_simulation_posa_final <- resultats_simulation_posa
 
 # Pour le reste
 resultats_simulation_posa_final <- rbind(resultats_simulation_posa_final,resultats_simulation_posa)
+
 ```
 
 ## Visualisation, très peu de différences sur les tailles d'échantillon, légère baisse du nombre de cas captés
@@ -495,7 +517,7 @@ ggplot(resultats_simulation_posa_final, aes(x = as.factor(taux_cluster), y = nom
 
 ```{r}
 set.seed(123) 
-n_iterations <- 30
+n_iterations <- 500
 
 # Création d'une matrice pour stocker les résultats
 resultats_simulation_cposa_final <- data.frame(
@@ -516,7 +538,7 @@ resultats_simulation_cposa <- data.frame(
 i = 0
 
 m_min = 22  # Nombre minimal de PSU sélectionnées
-n_iterations <- 50
+n_iterations <- 500
 
 for (iteration in 1:n_iterations) {
   repeat {
@@ -534,11 +556,11 @@ for (iteration in 1:n_iterations) {
       
       # Sélection de la première PSU si h = 1
       if (runif(n = 1, min = 0, max = 1) < psu_counts$proba_initiale[1]) {
-        psu_counts$psu_selectionne[1] <- 1 
+        psu_counts$psu_selectionne[1] <- 1
+        psu_selectionnees[[1]] <- psu_counts[1, ]
           
         # Vérification si la PSU sélectionnée est malade
         if (psu_counts$PSU_malade[1]) {
-          psu_selectionnees[[1]] <- psu_counts[1, ]
           psu_counts[2, "proba_mise_a_jour"] <- 1
         } 
           
@@ -572,10 +594,10 @@ for (iteration in 1:n_iterations) {
         # Sélection de la PSU précédente en fonction de sa probabilité
         if (runif(n = 1, min = 0, max = 1) < psu_counts$proba_initiale[PSU_precedente]) {
           psu_counts$psu_selectionne[PSU_precedente] <- 1 
+          psu_selectionnees[[PSU_precedente]] <- psu_counts[PSU_precedente, ]
           
           # Vérification si la PSU sélectionnée est malade
           if (psu_counts$PSU_malade[PSU_precedente]) {
-            psu_selectionnees[[PSU_precedente]] <- psu_counts[PSU_precedente, ]
             psu_counts[PSU_actuelle, "proba_mise_a_jour"] <- 1
           }
           
@@ -606,11 +628,7 @@ for (iteration in 1:n_iterations) {
       if (h == 225) {
         if (runif(n = 1, min = 0, max = 1) < psu_counts$proba_mise_a_jour[225]) {
           psu_counts$psu_selectionne[225] <- 1 
-          
-          # Vérification si la dernière PSU est malade
-          if (psu_counts$PSU_malade[225]) {
-            psu_selectionnees[[PSU_precedente]] <- psu_counts[PSU_precedente,]
-          }
+          psu_selectionnees[[PSU_precedente]] <- psu_counts[PSU_precedente,]
         }
       }
       
@@ -651,13 +669,13 @@ summary(resultats_simulation_cposa)
 
 ```{r}
 # A modifier en fonction du taux de clustering
-resultats_simulation_cposa$taux_cluster <- 0.5
+resultats_simulation_cposa$taux_cluster <- 0.7
 
 # A la première itération
 resultats_simulation_cposa_final <- resultats_simulation_cposa
 
 # Pour le reste
-resultats_simulation_cposa_final <- rbind(resultats_simulation_cposa_final,resultats_simulation_cposa)
+resultats_cposa_08 <- rbind(resultats_cposa_08,resultats_simulation_cposa)
 ```
 
 ## Visualisation, presque aucune différence peut importe le taux de cluster
@@ -684,76 +702,75 @@ ggplot(resultats_simulation_cposa_final, aes(x = as.factor(taux_cluster), y = no
 
 
 
-## Calcul du coefficient de variation inter-PSU k
 
-```{r}
-# Prévalence dans la population
-Y_barre <- nrow(malades) / nrow(population)
 
-# On ajoute à la table psu_counts la colonne Y_h qui correspond à la prévalence dans la PSU h
-psu_counts$Y_h <- psu_counts$malades / psu_counts$total_individus
 
-# On calcule ensuite la variance de (Y_h)^barre avec la formule donnée page 22 de l'article
-Var_Yh_barre <- 1 / n_total * sum( ((psu_counts$Y_h - Y_barre)**2) * psu_counts$total_individus )
-
-# Puis on détermine k avec la formule page 22 de l'article
-k <- sqrt(Var_Yh_barre) / Y_barre
-```
-
-```{r}
-# On peut regarder combien de PSU sont sélectionnées
-sum(sapply(psu_selectionnees, function(x) !is.null(x) && nrow(x) > 0))
-```
-
-```{r}
-# On ne garde que les lignes effectivement sélectionnées
-psu_selectionnees <- do.call(rbind, psu_selectionnees)
-
-# On affiche ces PSU
-psu_selectionnees
-```
 
 
 ## Plot global PoSA vs CPoSA
 
 ```{r}
-library(ggplot2)
+resultats_cposa_07$groupe <- "07_nwho_cposa"
+resultats_cposa_08$groupe <- "08_nwho_cposa"
+resultats_cposa_nwho$groupe <- "nwho_cposa"
 
-# Ajouter une colonne pour identifier les groupes (PoSA ou CPoSA)
-resultats_simulation_posa_final$groupe <- "PoSA"
-resultats_simulation_cposa_final$groupe <- "CPoSA"
+resultats_posa_07$groupe <- "07_nwho_posa"
+resultats_posa_08$groupe <- "08_nwho_posa"
+resultats_posa_nwho$groupe <- "nwho_posa"
 
-# Combiner les deux datasets
-resultats_combines <- rbind(resultats_simulation_posa_final, resultats_simulation_cposa_final)
+resultats_cposa_07$n_min <- "n_min = 07"
+resultats_cposa_08$n_min <- "n_min = 08"
+resultats_cposa_nwho$n_min <- "n_min = nwho"
 
-# Fixer l'ordre des groupes (PoSA avant CPoSA)
-resultats_combines$groupe <- factor(resultats_combines$groupe, levels = c("PoSA", "CPoSA"))
+resultats_posa_07$n_min <- "n_min = 07"
+resultats_posa_08$n_min <- "n_min = 08"
+resultats_posa_nwho$n_min <- "n_min = nwho"
 
-# Graphique pour la taille de l'échantillon
-plot_taille_nwho <- ggplot(resultats_combines, aes(x = as.factor(taux_cluster), y = taille_echantillon, fill = groupe)) +
-  geom_boxplot(position = position_dodge(0.8), color = "black") +
-  labs(title = "Boxplot de la taille de l'échantillon par taux_cluster : n_min = 0.7 n_who",
-       x = "Taux Cluster",
-       y = "Taille de l'échantillon") +
-  scale_fill_manual(values = c("PoSA" = "skyblue", "CPoSA" = "steelblue")) +
-  theme_minimal()
 
-# Graphique pour le nombre de malades
-plot_malades_nwho <- ggplot(resultats_combines, aes(x = as.factor(taux_cluster), y = nombre_malades, fill = groupe)) +
-  geom_boxplot(position = position_dodge(0.8), color = "black") +
-  labs(title = "Boxplot du nombre de malades par taux_cluster : n_min = 0.7 n_who",
-       x = "Taux Cluster",
-       y = "Nombre de malades") +
-  scale_fill_manual(values = c("PoSA" = "salmon", "CPoSA" = "darkred")) +
-  theme_minimal()
+# Fusion des données
+resultats <- bind_rows(resultats_cposa_07, resultats_cposa_08, resultats_cposa_nwho,
+                       resultats_posa_07, resultats_posa_08, resultats_posa_nwho)
 
-# Affichage des deux graphiques
-plot_taille_08_nwho
-plot_malades_08_nwho
-plot_taille_07_nwho
-plot_malades_07_nwho
-plot_taille_nwho
-plot_malades_nwho
+# Ajouter une colonne pour regrouper les catégories en "CPoSA" et "PoSA"
+resultats <- resultats %>%
+  mutate(categorie = ifelse(grepl("cposa", groupe), "CPoSA", "PoSA"))
+
+# Définition des couleurs pour les deux catégories
+couleurs_categories <- c("CPoSA" = "#1f77b4", "PoSA" = "#ff7f0e")
+
+# Graphique 1 : Taille échantillon vs taux_cluster
+p1 <- ggplot(resultats, aes(x = as.factor(taux_cluster), y = taille_echantillon, fill = categorie)) +
+  geom_boxplot(position = position_dodge(0.8), width = 0.7) +
+  facet_wrap(~ n_min) +
+  scale_fill_manual(values = couleurs_categories) +
+  theme_minimal() +
+  labs(x = "", y = "Taille de l'échantillon", fill = "Groupe") +
+  theme(
+    legend.text = element_text(size = 12),      # Taille du texte de la légende
+    legend.title = element_text(size = 12),     # Taille du titre de la légende
+    axis.text.x = element_text(size = 10),      # Taille des valeurs de l'axe X
+    axis.text.y = element_text(size = 10),      # Taille des valeurs de l'axe Y
+    strip.text = element_text(size = 12, face = "bold") # Taille des titres des facettes (n_min)
+  )
+
+# Graphique 2 : Nombre de malades vs taux_cluster
+p2 <- ggplot(resultats, aes(x = as.factor(taux_cluster), y = nombre_malades, fill = categorie)) +
+  geom_boxplot(position = position_dodge(0.8), width = 0.7) +
+  facet_wrap(~ n_min) +
+  scale_fill_manual(values = couleurs_categories) +
+  theme_minimal() +
+  labs(x = "", y = "Nombre de malades", fill = "Groupe") +
+  theme(
+    legend.text = element_text(size = 12),
+    legend.title = element_text(size = 12),
+    axis.text.x = element_text(size = 10),
+    axis.text.y = element_text(size = 10),
+    strip.text = element_text(size = 12, face = "bold")
+  )
+
+print(p1)
+print(p2)
+
 
 ```
 
@@ -866,6 +883,7 @@ resultats_simulation_prop_final <- results_df
 # Pour le reste
 resultats_simulation_prop_final <- rbind(resultats_simulation_prop_final,results_df)
 
+resultats_simulation_prop_final_nmin <- resultats_simulation_prop_final
 
 ```
 
@@ -912,78 +930,144 @@ print(plot_total_malades)
 
 ```{r}
 
-stats_CPoSA <- resultats_simulation_cposa_final %>% 
-  reframe(rate_postive_case = (nombre_malades / taille_echantillon) * 100, 
-            accuracy_final_estimation = sqrt(((nombre_malades / taille_echantillon) - 0.005)**2),
-            final_sample_size = taille_echantillon,
-            cost_par_case_detected = 2900000 + 18900*m_ech + m_ech*6.5*mean(psu_counts$total_individus),
-          taux_cluster)
+resultats_cposa_07$n_min <- "n_min = 07"
+resultats_cposa_08$n_min <- "n_min = 08"
+resultats_cposa_nwho$n_min <- "n_min = nwho"
 
-stats_prop <- resultats_simulation_prop_final %>% 
-  filter(Total_Malades != 0) %>% 
-  reframe(rate_postive_case = (Total_Malades / Total_Individus) * 100, 
-            accuracy_final_estimation = sqrt(((Total_Malades / Total_Individus) / 100)**2),
-            final_sample_size = Total_Individus,
-            cost_par_case_detected = 2900000 + 18900*m_ech + m_ech*6.5*mean(psu_counts$total_individus),
-          taux_cluster)
+resultats_simulation_prop_final_07$n_min <- "n_min = 07"
+resultats_simulation_prop_final_08$n_min <- "n_min = 08"
+resultats_simulation_prop_final_nmin$n_min <- "n_min = nwho"
 
-stats_prop <- stats_prop[c(1:20,5001:5020,12001:12020,17001:17020,22001:22020,27001:27020),]
+# Stratifie l'échantillonnage par taux_cluster en conservant les proportions initiales
+resultats_simulation_prop_final_07_01 <- resultats_simulation_prop_final_07 %>%
+  group_by(taux_cluster) %>%
+  sample_frac(0.1) %>%
+  ungroup()
 
-comparaison <- stats_CPoSA / stats_prop
+resultats_simulation_prop_final_08_01 <- resultats_simulation_prop_final_08 %>%
+  group_by(taux_cluster) %>%
+  sample_frac(0.1) %>%
+  ungroup()
 
-valeurs <- c(0.01, 0.3, 0.4, 0.5, 0.6, 0.7)
+resultats_simulation_prop_final_nmin_01 <- resultats_simulation_prop_final_nmin %>%
+  group_by(taux_cluster) %>%
+  sample_frac(0.1) %>%
+  ungroup()
 
-# Mise à jour des valeurs de comparaison$taux_cluster
-for (i in 1:6) {
-  comparaison$taux_cluster[((i - 1) * 20 + 1):(i * 20)] <- valeurs[i]
-}
+# Définition des valeurs de n_min
+n_min_values <- c("n_min = 07", "n_min = 08", "n_min = nwho")
 
-comparaison <- comparaison %>% 
-  group_by(taux_cluster) %>% 
-  summarise(across(everything(), mean, na.rm = TRUE))
-
-variables_a_visualiser <- setdiff(names(comparaison), "taux_cluster")
-
-# Fonction pour créer un graphique avec un paramètre de nom d'axe Y et personnalisation de l'axe X
-create_plot <- function(data, var, y_label) {
-  ggplot(data, aes(x = taux_cluster, y = .data[[var]])) + 
-    geom_line() + 
-    geom_hline(yintercept = 1, linetype = "dashed", color = "red") + # Ajoute une ligne horizontale en pointillé à y = 1
-    labs(x = "Taux Cluster", y = y_label, title = paste("Graphique de", var)) + 
-    theme_minimal() +
-    theme(
-      panel.border = element_rect(color = "black", fill = NA, size = 1), # Délimite les bords du graphique
-      panel.grid.major = element_line(color = "grey80", size = 0.5), # Ajoute des lignes de grille
-      panel.grid.minor = element_blank(), # Enlève les lignes de grille mineures
-      axis.text.x = element_text(angle = 0, hjust = 0.5) # Ajuste l'orientation des textes sur l'axe X
-    ) +
-    scale_x_continuous(
-      breaks = c(0, 0.3, 0.4, 0.5, 0.6, 0.7), # Spécifie les ticks que tu veux afficher
-      labels = c("0", "0.3", "0.4", "0.5", "0.6", "0.7"), # Labels personnalisés
-      expand = c(0, 0) # Enlève les marges supplémentaires autour de l'axe X
+# Fonction pour effectuer l'analyse pour chaque n_min
+analyser_n_min <- function(n_min_value) {
+  
+  # Sélection des données en fonction de n_min
+  resultats_CPoSA <- bind_rows(resultats_cposa_07, resultats_cposa_08, resultats_cposa_nwho) %>%
+    filter(n_min == n_min_value)
+  
+  resultats_prop <- bind_rows(resultats_simulation_prop_final_07_01, 
+                              resultats_simulation_prop_final_08_01, 
+                              resultats_simulation_prop_final_nmin_01) %>%
+    filter(n_min == n_min_value)
+  
+  # Calcul des statistiques pour CPoSA
+  stats_CPoSA <- resultats_CPoSA %>% 
+    reframe(
+      rate_postive_case = (nombre_malades / taille_echantillon) * 100, 
+      accuracy_final_estimation = sqrt(((nombre_malades / taille_echantillon) - 0.005)**2),
+      final_sample_size = taille_echantillon,
+      cost_par_case_detected = 2900000 + 18900*m_ech + m_ech*6.5*mean(psu_counts$total_individus),
+      taux_cluster
     )
+  
+  # Calcul des statistiques pour Prop
+  stats_prop <- resultats_prop %>% 
+    reframe(
+      rate_postive_case = (Total_Malades / Total_Individus) * 100, 
+      accuracy_final_estimation = sqrt(((Total_Malades / Total_Individus) / 100)**2),
+      final_sample_size = Total_Individus,
+      cost_par_case_detected = 2900000 + 18900*m_ech + m_ech*6.5*mean(psu_counts$total_individus),
+      taux_cluster
+    )
+  
+  stats_prop <- stats_prop %>% 
+    arrange(taux_cluster)
+  
+  comparaison <- stats_CPoSA[,-5] / stats_prop[,-5]
+  
+  # Rajout des taux_cluster
+  comparaison$taux_cluster <- stats_CPoSA$taux_cluster
+  
+  comparaison$taux_cluster[comparaison$taux_cluster == 0] <- 0.2
+  
+  # On enlève les valeurs Inf
+  comparaison <- comparaison %>%
+  filter_all(all_vars(is.finite(.)))
+  
+  # Agrégation des données
+  comparaison <- comparaison %>% 
+    group_by(taux_cluster) %>% 
+    summarise(across(everything(), mean, na.rm = TRUE))
+  
+  variables_a_visualiser <- setdiff(names(comparaison), "taux_cluster")
+  
+  # Fonction pour créer un graphique avec une personnalisation de l'axe X et Y
+  create_plot <- function(data, var, y_label, titre) {
+    valeurs_x <- c(0, 0.3, 0.4, 0.5, 0.6, 0.7)  # Valeurs spécifiques de taux_cluster
+  
+    ggplot(data, aes(x = taux_cluster, y = .data[[var]])) + 
+      geom_line(data = data %>% filter(taux_cluster %in% valeurs_x)) +  # Assure que le tracé reste dans l'intervalle
+      geom_point() +  
+      geom_hline(yintercept = 1, linetype = "dashed", color = "red") +
+      labs(x = "Taux Cluster", y = y_label, title = paste(titre, n_min_value)) + 
+      theme_minimal() +
+      theme(
+        panel.border = element_rect(color = "black", fill = NA, size = 1),
+        panel.grid.major = element_line(color = "grey80", size = 0.5),
+        panel.grid.minor = element_blank(),
+        axis.text.x = element_text(angle = 0, hjust = 0.5)
+      ) +
+      scale_x_continuous(
+        breaks = valeurs_x,  # Garde uniquement les 6 valeurs définies
+        labels = valeurs_x,
+        expand = c(0, 0)
+      )
+  }
+  
+  # Liste des noms d'axes Y personnalisés
+  y_labels <- c(
+    "Ability to detect positive cases",
+    "Accuracy of Final Estimate",
+    "Final Sample Size",
+    "Cost per Case Detected"
+  )
+  
+  # Création des graphiques
+  plots <- lapply(seq_along(variables_a_visualiser), function(i) {
+    var <- variables_a_visualiser[i]
+    y_label <- y_labels[i]
+    create_plot(comparaison, var, y_label, paste("Graphique de", var))
+  })
+  
+  return(plots)
 }
 
-# Liste des noms d'axes Y personnalisés
-y_labels <- c(
-  "Ability to detect positive cases",
-  "Accuracy of Final Estimate",
-  "Final Sample Size",
-  "Cost per Case Detected"
-)
+# Exécuter l'analyse pour chaque valeur de n_min et stocker tous les graphiques
+all_plots <- lapply(n_min_values, analyser_n_min)
 
-
-# Créer un graphique pour chaque variable
-plots <- lapply(variables_a_visualiser, function(var) {
-  # On utilise le label correspondant pour chaque variable
-  y_label <- y_labels[which(variables_a_visualiser == var)]
-  create_plot(comparaison, var, y_label)
-})
-
-# Affichage des graphiques
-for (i in seq_along(plots)) {
-  print(plots[[i]])
+# Affichage des 12 graphiques
+for (plots in all_plots) {
+  for (plot in plots) {
+    print(plot)
+  }
 }
+
+
+all_plots[[1]][[4]] <- all_plots[[1]][[4]] + ggtitle("n_min = 0.7")
+all_plots[[2]][[4]] <- all_plots[[2]][[4]] + ggtitle("n_min = 0.8") + theme(axis.title.y = element_blank())
+all_plots[[3]][[4]] <- all_plots[[3]][[4]] + ggtitle("n_min = nwho") + theme(axis.title.y = element_blank())
+
+grid.arrange(all_plots[[1]][[4]], all_plots[[2]][[4]], all_plots[[3]][[4]], ncol = 3)
+
 
 
 ```
