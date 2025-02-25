@@ -346,8 +346,9 @@ resultats_simulation_posa <- data.frame(
 
 ```{r}
 i = 0
-m_min = 27 # Nombre minimal de PSU sélectionnées
-n_iterations = 5000
+m_min = 22 # Nombre minimal de PSU sélectionnées
+n_iterations = 1000
+test <- 0
 
 for (iteration in 1:n_iterations) {
   # Initialisation des données et des probabilités
@@ -424,30 +425,30 @@ for (iteration in 1:n_iterations) {
           psu_selectionnees[[PSU_precedente]] <- psu_counts[PSU_precedente,]
         }
       }
-    }
+  }
+  
+    # Obtention de la table liée à l'échantillon
+  psu_counts_ech <- psu_counts %>% 
+    filter(psu_selectionne == 1)
   
   # Normalisation de l'estimateur Pseudo-HT
-  Y_PHT = HT_pseudo / N_total
-  V_PHT <- V_HT_pseudo / N_total**2
+  Y_PHT = HT_pseudo / 250000
+  V_PHT <- V_HT_pseudo / 250000**2
 
   # Calcul HT classique
-  Y_HT <- sum(psu_counts$malades / psu_counts$proba_initiale) * 1 / 250000
+  Y_HT <- 1 / 250000 * sum(psu_counts_ech$malades / psu_counts_ech$proba_initiale)
   # Calcul de la variance exacte de l'estimateur HT
-  #V_HT <- sum(outer(psu_counts$malades, psu_counts$malades, "*") / outer(psu_counts$proba_initiale, psu_counts$proba_initiale, "*")) - 
-        (sum(psu_counts$malades / psu_counts$proba_initiale))^2
-  #CV_HT <- sqrt(V_HT) / Y_HT # coefficient de variation
+  V_HT <- 1 / 250000**2 * sum((psu_counts_ech$malades / psu_counts_ech$proba_initiale)**2 * (1 - psu_counts_ech$proba_initiale))
+  CV_HT <- sqrt(V_HT) / Y_HT # coefficient de variation
   CV_PHT <- sqrt(V_PHT) / Y_PHT
   
   # Comparaison PHT et HT
-  #rapport_variances <- V_PHT / V_HT
+  rapport_variances <- V_PHT / V_HT
   biais_relatif_PHT <- (Y_PHT - 0.005) / 0.005
   biais_relatif_HT <- (Y_HT - 0.005) / 0.005
   
   # Calcul des résultats pour cette itération
   m_ech <- nrow(as.data.frame(do.call(rbind, psu_selectionnees))) 
-  # Obtention de la table liée à l'échantillon
-  psu_counts_ech <- psu_counts %>% 
-    filter(psu_selectionne == 1)
   
   # Enregistrement des résultats
   resultats_simulation_posa[iteration, "taille_echantillon"] <- sum(psu_counts_ech$total_individus)
@@ -456,11 +457,11 @@ for (iteration in 1:n_iterations) {
   resultats_simulation_posa[iteration, "m_ech"] <- sum(psu_counts$psu_selectionne)
   resultats_simulation_posa[iteration, "Y_HT"] <- Y_HT
   resultats_simulation_posa[iteration, "Y_PHT"] <- Y_PHT
-  #resultats_simulation_posa[iteration, "V_HT"] <- V_HT
+  resultats_simulation_posa[iteration, "V_HT"] <- V_HT
   resultats_simulation_posa[iteration, "V_PHT"] <- V_PHT
   resultats_simulation_posa[iteration, "CV_PHT"] <- CV_PHT
-  #resultats_simulation_posa[iteration, "CV_HT"] <- CV_HT
-  #resultats_simulation_posa[iteration, "rapport_variances"] <- rapport_variances
+  resultats_simulation_posa[iteration, "CV_HT"] <- CV_HT
+  resultats_simulation_posa[iteration, "rapport_variances"] <- rapport_variances
   resultats_simulation_posa[iteration, "biais_relatif_PHT"] <- biais_relatif_PHT 
   resultats_simulation_posa[iteration, "biais_relatif_HT"] <- biais_relatif_HT
 }
@@ -718,13 +719,13 @@ resultats_posa_07$groupe <- "07_nwho_posa"
 resultats_posa_08$groupe <- "08_nwho_posa"
 resultats_posa_nwho$groupe <- "nwho_posa"
 
-resultats_cposa_07$n_min <- "n_min = 07"
-resultats_cposa_08$n_min <- "n_min = 08"
-resultats_cposa_nwho$n_min <- "n_min = nwho"
+resultats_cposa_07$n_min <- "m_min = 07*m_who"
+resultats_cposa_08$n_min <- "m_min = 08*m_who"
+resultats_cposa_nwho$n_min <- "m_min = mwho"
 
-resultats_posa_07$n_min <- "n_min = 07"
-resultats_posa_08$n_min <- "n_min = 08"
-resultats_posa_nwho$n_min <- "n_min = nwho"
+resultats_posa_07$n_min <- "m_min = 07*m_who"
+resultats_posa_08$n_min <- "m_min = 08*m_who"
+resultats_posa_nwho$n_min <- "m_min = mwho"
 
 
 # Fusion des données
@@ -748,7 +749,7 @@ p1 <- ggplot(resultats, aes(x = as.factor(taux_cluster), y = taille_echantillon,
   theme(
     legend.text = element_text(size = 12),      # Taille du texte de la légende
     legend.title = element_text(size = 12),     # Taille du titre de la légende
-    axis.text.x = element_text(size = 10),      # Taille des valeurs de l'axe X
+    axis.text.x = element_text(size = 12),      # Taille des valeurs de l'axe X
     axis.text.y = element_text(size = 10),      # Taille des valeurs de l'axe Y
     strip.text = element_text(size = 12, face = "bold") # Taille des titres des facettes (n_min)
   )
@@ -764,7 +765,7 @@ p2 <- ggplot(resultats, aes(x = as.factor(taux_cluster), y = nombre_malades, fil
     legend.text = element_text(size = 12),
     legend.title = element_text(size = 12),
     axis.text.x = element_text(size = 10),
-    axis.text.y = element_text(size = 10),
+    axis.text.y = element_text(size = 12),
     strip.text = element_text(size = 12, face = "bold")
   )
 
@@ -930,32 +931,8 @@ print(plot_total_malades)
 
 ```{r}
 
-resultats_cposa_07$n_min <- "n_min = 07"
-resultats_cposa_08$n_min <- "n_min = 08"
-resultats_cposa_nwho$n_min <- "n_min = nwho"
-
-resultats_simulation_prop_final_07$n_min <- "n_min = 07"
-resultats_simulation_prop_final_08$n_min <- "n_min = 08"
-resultats_simulation_prop_final_nmin$n_min <- "n_min = nwho"
-
-# Stratifie l'échantillonnage par taux_cluster en conservant les proportions initiales
-resultats_simulation_prop_final_07_01 <- resultats_simulation_prop_final_07 %>%
-  group_by(taux_cluster) %>%
-  sample_frac(0.1) %>%
-  ungroup()
-
-resultats_simulation_prop_final_08_01 <- resultats_simulation_prop_final_08 %>%
-  group_by(taux_cluster) %>%
-  sample_frac(0.1) %>%
-  ungroup()
-
-resultats_simulation_prop_final_nmin_01 <- resultats_simulation_prop_final_nmin %>%
-  group_by(taux_cluster) %>%
-  sample_frac(0.1) %>%
-  ungroup()
-
 # Définition des valeurs de n_min
-n_min_values <- c("n_min = 07", "n_min = 08", "n_min = nwho")
+n_min_values <- c("m_min = 07*m_who", "m_min = 08*m_who", "m_min = mwho")
 
 # Fonction pour effectuer l'analyse pour chaque n_min
 analyser_n_min <- function(n_min_value) {
@@ -975,7 +952,7 @@ analyser_n_min <- function(n_min_value) {
       rate_postive_case = (nombre_malades / taille_echantillon) * 100, 
       accuracy_final_estimation = sqrt(((nombre_malades / taille_echantillon) - 0.005)**2),
       final_sample_size = taille_echantillon,
-      cost_par_case_detected = 2900000 + 18900*m_ech + m_ech*6.5*mean(psu_counts$total_individus),
+      cost_par_case_detected = 2900000 + 0.2*18900*m_ech + m_ech*6.5*mean(psu_counts$total_individus),
       taux_cluster
     )
   
@@ -1001,74 +978,206 @@ analyser_n_min <- function(n_min_value) {
   
   # On enlève les valeurs Inf
   comparaison <- comparaison %>%
-  filter_all(all_vars(is.finite(.)))
+    filter_all(all_vars(is.finite(.)))
   
   # Agrégation des données
   comparaison <- comparaison %>% 
     group_by(taux_cluster) %>% 
     summarise(across(everything(), mean, na.rm = TRUE))
   
-  variables_a_visualiser <- setdiff(names(comparaison), "taux_cluster")
+  # Ajouter la colonne n_min pour savoir de quelle analyse proviennent les données
+  comparaison$n_min <- n_min_value
   
-  # Fonction pour créer un graphique avec une personnalisation de l'axe X et Y
-  create_plot <- function(data, var, y_label, titre) {
-    valeurs_x <- c(0, 0.3, 0.4, 0.5, 0.6, 0.7)  # Valeurs spécifiques de taux_cluster
-  
-    ggplot(data, aes(x = taux_cluster, y = .data[[var]])) + 
-      geom_line(data = data %>% filter(taux_cluster %in% valeurs_x)) +  # Assure que le tracé reste dans l'intervalle
-      geom_point() +  
-      geom_hline(yintercept = 1, linetype = "dashed", color = "red") +
-      labs(x = "Taux Cluster", y = y_label, title = paste(titre, n_min_value)) + 
-      theme_minimal() +
-      theme(
-        panel.border = element_rect(color = "black", fill = NA, size = 1),
-        panel.grid.major = element_line(color = "grey80", size = 0.5),
-        panel.grid.minor = element_blank(),
-        axis.text.x = element_text(angle = 0, hjust = 0.5)
-      ) +
-      scale_x_continuous(
-        breaks = valeurs_x,  # Garde uniquement les 6 valeurs définies
-        labels = valeurs_x,
-        expand = c(0, 0)
-      )
-  }
-  
-  # Liste des noms d'axes Y personnalisés
-  y_labels <- c(
-    "Ability to detect positive cases",
-    "Accuracy of Final Estimate",
-    "Final Sample Size",
-    "Cost per Case Detected"
-  )
-  
-  # Création des graphiques
-  plots <- lapply(seq_along(variables_a_visualiser), function(i) {
-    var <- variables_a_visualiser[i]
-    y_label <- y_labels[i]
-    create_plot(comparaison, var, y_label, paste("Graphique de", var))
-  })
-  
-  return(plots)
+  return(comparaison)
 }
 
-# Exécuter l'analyse pour chaque valeur de n_min et stocker tous les graphiques
-all_plots <- lapply(n_min_values, analyser_n_min)
+# Initialiser une table vide pour stocker toutes les comparaisons
+stats_total <- tibble()
 
-# Affichage des 12 graphiques
-for (plots in all_plots) {
-  for (plot in plots) {
-    print(plot)
-  }
+# Boucle pour effectuer l'analyse pour chaque n_min et combiner les résultats
+for (n_min_value in n_min_values) {
+  # Exécuter l'analyse pour chaque n_min
+  comparaison <- analyser_n_min(n_min_value)
+  
+  # Ajouter les résultats à la table stats_total
+  stats_total <- bind_rows(stats_total, comparaison)
 }
 
-
-all_plots[[1]][[4]] <- all_plots[[1]][[4]] + ggtitle("n_min = 0.7")
-all_plots[[2]][[4]] <- all_plots[[2]][[4]] + ggtitle("n_min = 0.8") + theme(axis.title.y = element_blank())
-all_plots[[3]][[4]] <- all_plots[[3]][[4]] + ggtitle("n_min = nwho") + theme(axis.title.y = element_blank())
-
-grid.arrange(all_plots[[1]][[4]], all_plots[[2]][[4]], all_plots[[3]][[4]], ncol = 3)
+# Affichage du résultat combiné
+head(stats_total)
 
 
+
+
+
+
+
+
+
+
+# Filtrer les données pour chaque valeur unique de n_min
+data_n_min_1 <- subset(stats_total, n_min == "m_min = 07*m_who")
+data_n_min_2 <- subset(stats_total, n_min == "m_min = 08*m_who")
+data_n_min_3 <- subset(stats_total, n_min == "m_min = mwho")
+
+p1 <- ggplot(data_n_min_1, aes(x = taux_cluster, y = rate_postive_case)) +
+  geom_line() + geom_point() +
+  labs(title = "m_min = 07*m_who") +
+  geom_hline(yintercept = 1, linetype = "dashed", color = "black") +
+  scale_y_continuous(breaks = seq(0.8, 4, 0.5)) + 
+  ylim(0.8, 4) +
+  scale_x_continuous(breaks = c(0.2, 0.3, 0.4, 0.5, 0.6, 0.7), labels = c("0", "0.3", "0.4", "0.5", "0.6", "0.7")) +
+  xlab(NULL) +
+  ylab("Ability to detect positive cases") +
+  theme(axis.text.x = element_text(size = 14), 
+        axis.text.y = element_text(size = 14),
+        plot.title = element_text(hjust = 0.5))
+
+p2 <- ggplot(data_n_min_1, aes(x = taux_cluster, y = accuracy_final_estimation)) +
+  geom_line() + geom_point() +
+  labs(title = "m_min = 07*m_who") +
+  geom_hline(yintercept = 1, linetype = "dashed", color = "black") +
+  scale_y_continuous(breaks = seq(0, 125, 25)) + 
+  ylim(0, 125) +
+  scale_x_continuous(breaks = c(0.2, 0.3, 0.4, 0.5, 0.6, 0.7), labels = c("0", "0.3", "0.4", "0.5", "0.6", "0.7")) +
+  xlab(NULL) +
+  ylab("Accuracy of Final Estimate") +
+  theme(axis.text.x = element_text(size = 14), 
+        axis.text.y = element_text(size = 14),
+        plot.title = element_text(hjust = 0.5))
+
+p3 <- ggplot(data_n_min_1, aes(x = taux_cluster, y = final_sample_size)) +
+  geom_line() + geom_point() +
+  labs(title = "m_min = 07*m_who") +
+  geom_hline(yintercept = 1, linetype = "dashed", color = "black") +
+  scale_y_continuous(breaks = seq(0.8, 1.6, 0.1)) + 
+  ylim(0.8, 1.6) +
+  scale_x_continuous(breaks = c(0.2, 0.3, 0.4, 0.5, 0.6, 0.7), labels = c("0", "0.3", "0.4", "0.5", "0.6", "0.7")) +
+  xlab(NULL) +
+  ylab("Final Sample Size") +
+  theme(axis.text.x = element_text(size = 14), 
+        axis.text.y = element_text(size = 14),
+        plot.title = element_text(hjust = 0.5))
+
+p4 <- ggplot(data_n_min_1, aes(x = taux_cluster, y = cost_par_case_detected)) +
+  geom_line() + geom_point() +
+  labs(title = "m_min = 07*m_who") +
+  geom_hline(yintercept = 1, linetype = "dashed", color = "black") +
+  scale_y_continuous(breaks = seq(0.8, 1, 0.02)) + 
+  ylim(0.80, 1) +
+  scale_x_continuous(breaks = c(0.2, 0.3, 0.4, 0.5, 0.6, 0.7), labels = c("0", "0.3", "0.4", "0.5", "0.6", "0.7")) +
+  xlab(NULL) +
+  ylab("Cost per Case Detected") +
+  theme(axis.text.x = element_text(size = 14), 
+        axis.text.y = element_text(size = 14),
+        plot.title = element_text(hjust = 0.5))
+
+p5 <- ggplot(data_n_min_2, aes(x = taux_cluster, y = rate_postive_case)) +
+  geom_line() + geom_point() +
+  labs(title = "m_min = 0.8*m_who") +
+  geom_hline(yintercept = 1, linetype = "dashed", color = "black") +
+  scale_y_continuous(breaks = seq(0.8, 4, 0.5)) + 
+  ylim(0.8, 4) +
+  scale_x_continuous(breaks = c(0.2, 0.3, 0.4, 0.5, 0.6, 0.7), labels = c("0", "0.3", "0.4", "0.5", "0.6", "0.7")) +
+  ylab(NULL) +
+  xlab(NULL) +
+  theme(axis.text.x = element_text(size = 14), 
+        axis.text.y = element_text(size = 14),
+        plot.title = element_text(hjust = 0.5))
+
+p6 <- ggplot(data_n_min_2, aes(x = taux_cluster, y = accuracy_final_estimation)) +
+  geom_line() + geom_point() +
+  labs(title = "m_min = 0.8*m_who") +
+  geom_hline(yintercept = 1, linetype = "dashed", color = "black") +
+  scale_y_continuous(breaks = seq(0, 125, 25)) + 
+  ylim(0, 125) +
+  scale_x_continuous(breaks = c(0.2, 0.3, 0.4, 0.5, 0.6, 0.7), labels = c("0", "0.3", "0.4", "0.5", "0.6", "0.7")) +
+  xlab(NULL) +
+  ylab(NULL) +
+  theme(axis.text.x = element_text(size = 14), 
+        axis.text.y = element_text(size = 14),
+        plot.title = element_text(hjust = 0.5))
+
+p7 <- ggplot(data_n_min_2, aes(x = taux_cluster, y = final_sample_size)) +
+  geom_line() + geom_point() +
+  labs(title = "m_min = 0.8*m_who") +
+  geom_hline(yintercept = 1, linetype = "dashed", color = "black") +
+  scale_y_continuous(breaks = seq(0.8, 1.6, 0.1)) + 
+  ylim(0.8, 1.6) +
+  scale_x_continuous(breaks = c(0.2, 0.3, 0.4, 0.5, 0.6, 0.7), labels = c("0", "0.3", "0.4", "0.5", "0.6", "0.7")) +
+  xlab(NULL) +
+  ylab(NULL) +
+  theme(axis.text.x = element_text(size = 14), 
+        axis.text.y = element_text(size = 14),
+        plot.title = element_text(hjust = 0.5))
+
+p8 <- ggplot(data_n_min_2, aes(x = taux_cluster, y = cost_par_case_detected)) +
+  geom_line() + geom_point() +
+  labs(title = "m_min = 0.8*m_who") +
+  geom_hline(yintercept = 1, linetype = "dashed", color = "black") +
+  scale_y_continuous(breaks = seq(0.8, 1, 0.02)) + 
+  ylim(0.80, 1) +
+  scale_x_continuous(breaks = c(0.2, 0.3, 0.4, 0.5, 0.6, 0.7), labels = c("0", "0.3", "0.4", "0.5", "0.6", "0.7")) +
+  xlab(NULL) +
+  ylab(NULL) +
+  theme(axis.text.x = element_text(size = 14), 
+        axis.text.y = element_text(size = 14),
+        plot.title = element_text(hjust = 0.5))
+
+p9 <- ggplot(data_n_min_3, aes(x = taux_cluster, y = rate_postive_case)) +
+  geom_line() + geom_point() +
+  labs(title = "m_min = m_who") +
+  geom_hline(yintercept = 1, linetype = "dashed", color = "black") +
+  scale_y_continuous(breaks = seq(0.8, 4, 0.5)) + 
+  ylim(0.8, 4) +
+  xlab(NULL) +
+  ylab(NULL) +
+  scale_x_continuous(breaks = c(0.2, 0.3, 0.4, 0.5, 0.6, 0.7), labels = c("0", "0.3", "0.4", "0.5", "0.6", "0.7")) +
+  theme(axis.text.x = element_text(size = 14), 
+        axis.text.y = element_text(size = 14),
+        plot.title = element_text(hjust = 0.5))
+
+p10 <- ggplot(data_n_min_3, aes(x = taux_cluster, y = accuracy_final_estimation)) +
+  geom_line() + geom_point() +
+  labs(title = "m_min = m_who") +
+  geom_hline(yintercept = 1, linetype = "dashed", color = "black") +
+  scale_y_continuous(breaks = seq(0, 125, 25)) + 
+  ylim(0, 125) +
+  scale_x_continuous(breaks = c(0.2, 0.3, 0.4, 0.5, 0.6, 0.7), labels = c("0", "0.3", "0.4", "0.5", "0.6", "0.7")) +
+  xlab(NULL) +
+  ylab(NULL) +
+  theme(axis.text.x = element_text(size = 14), 
+        axis.text.y = element_text(size = 14),
+        plot.title = element_text(hjust = 0.5))
+
+p11 <- ggplot(data_n_min_3, aes(x = taux_cluster, y = final_sample_size)) +
+  geom_line() + geom_point() +
+  labs(title = "m_min = m_who") +
+  geom_hline(yintercept = 1, linetype = "dashed", color = "black") +
+  scale_y_continuous(breaks = seq(0.8, 1.6, 0.1)) + 
+  ylim(0.8, 1.6) +
+  scale_x_continuous(breaks = c(0.2, 0.3, 0.4, 0.5, 0.6, 0.7), labels = c("0", "0.3", "0.4", "0.5", "0.6", "0.7")) +
+  xlab(NULL) +
+  ylab(NULL) +
+  theme(axis.text.x = element_text(size = 14), 
+        axis.text.y = element_text(size = 14),
+        plot.title = element_text(hjust = 0.5))
+
+p12 <- ggplot(data_n_min_3, aes(x = taux_cluster, y = cost_par_case_detected)) +
+  geom_line() + geom_point() +
+  labs(title = "m_min = m_who") +
+  geom_hline(yintercept = 1, linetype = "dashed", color = "black") +
+  scale_y_continuous(breaks = seq(0.8, 1, 0.02)) + 
+  ylim(0.80, 1) +
+  scale_x_continuous(breaks = c(0.2, 0.3, 0.4, 0.5, 0.6, 0.7), labels = c("0", "0.3", "0.4", "0.5", "0.6", "0.7")) +
+  xlab(NULL) +
+  ylab(NULL) +
+  theme(axis.text.x = element_text(size = 14), 
+        axis.text.y = element_text(size = 14),
+        plot.title = element_text(hjust = 0.5))
+
+# Afficher les graphiques
+grid.arrange(p2, p6, p10, ncol = 3)
 
 ```
 
